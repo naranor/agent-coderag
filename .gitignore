@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+
+# Project specific
+.code_rag.db
+.code_rag.db.wal
+.gemini/code_rag.db
+.gemini/code_rag.db.wal
+
+# E2E Tests temporary files
+e2e_tests/tmp_workspace/
+e2e_tests/e2e_test.db
+e2e_tests/e2e_test.db.wal
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/

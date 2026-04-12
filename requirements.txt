@@ -1,0 +1,8 @@
+duckdb
+numpy
+litellm
+onnxruntime
+transformers
+pydantic
+httpx
+aiofiles

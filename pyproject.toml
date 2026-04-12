@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "code-rag"
+version = "0.1.0"
+description = "Semantic search and code distillation utility for Gemini CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Gemini CLI Team" }
+]
+dependencies = [
+    "duckdb",
+    "numpy",
+    "litellm",
+    "onnxruntime",
+    "transformers",
+    "pydantic",
+    "httpx",
+    "aiofiles",
+]
+
+[project.scripts]
+code-rag = "code_rag.entry.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["code_rag*"]
