@@ -24,11 +24,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Text Processing :: Indexing",
 ]
-[project.urls]
-Homepage = "https://github.com/naranor/code-rag"
-Repository = "https://github.com/naranor/code-rag"
-Issues = "https://github.com/naranor/code-rag/issues"
-
 dependencies = [
     "duckdb",
     "numpy",
@@ -39,6 +34,11 @@ dependencies = [
     "httpx",
     "aiofiles",
 ]
+
+[project.urls]
+Homepage = "https://github.com/naranor/code-rag"
+Repository = "https://github.com/naranor/code-rag"
+Issues = "https://github.com/naranor/code-rag/issues"
 
 [project.scripts]
 code-rag = "code_rag.entry.cli:main"
