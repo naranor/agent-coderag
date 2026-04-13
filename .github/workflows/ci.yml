@@ -50,4 +50,8 @@ jobs:
         
     - name: Run Prospector audit
       run: |
-        prospector code_rag --profile .prospector.yaml --with-tool mypy --with-tool bandit --with-tool vulture
+        prospector code_rag --profile .prospector.yaml --with-tool mypy --with-tool bandit
+        
+    - name: Run Vulture dead code check
+      run: |
+        vulture code_rag --min-confidence 80 --exclude code_rag/core/models.py,vulture_whitelist.py

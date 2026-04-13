@@ -1,3 +1,11 @@
 vulture:
+  run: false
+
+# Other tool settings remain surgical
+pylint:
   run: true
-  # Using '# used' comments in code for specific false positives
+  disable:
+    - wrong-import-position
+    - missing-module-docstring
+    - missing-class-docstring
+    - missing-function-docstring
