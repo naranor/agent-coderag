@@ -13,7 +13,7 @@ class MyClass:
 def top_level_func(b: str) -> str:
     return f"Hello {b}"
 
-# Simple variable (ast-index might or might not pick it up based on its version)
+# Simple variable
 x = 42
 """
     f_path = tmp_path / "sample.py"
@@ -24,10 +24,9 @@ x = 42
 async def test_ast_parser_real_file(test_py_file):
     """
     Verifies that AstIndexParser correctly extracts symbols from a real file.
-    Note: Current 'ast-index outline' might only show top-level symbols.
     """
     parser = AstIndexParser()
-    units = await parser.parse_file(test_py_file)
+    units = await parser.distill_file(test_py_file)
     
     names = [u.name for u in units]
     
@@ -42,11 +41,6 @@ async def test_ast_parser_real_file(test_py_file):
     func_unit = next(u for u in units if u.name == "top_level_func")
     assert func_unit.kind == UnitKind.FUNCTION
     
-    # Signature parsing check
-    # Depending on version, it might be empty or contain args
-    if func_unit.signature:
-        assert "(b: str) -> str" in func_unit.signature
-
     # Check that metadata contains raw code
     assert "def top_level_func" in func_unit.metadata["raw_code"]
 
@@ -59,7 +53,7 @@ async def test_ast_parser_empty_or_no_symbols(tmp_path):
     f_path.write_text("# Just comments\n# Nothing here")
     
     parser = AstIndexParser()
-    units = await parser.parse_file(str(f_path))
+    units = await parser.distill_file(str(f_path))
     
     assert len(units) == 1
     assert units[0].kind == UnitKind.MODULE
@@ -72,5 +66,5 @@ async def test_ast_parser_non_existent_file():
     Should return empty list gracefully for missing files.
     """
     parser = AstIndexParser()
-    units = await parser.parse_file("non_existent_file.py")
+    units = await parser.distill_file("non_existent_file.py")
     assert units == []

@@ -109,9 +109,10 @@ async def setup_cmd(args):
         "model.onnx": f"{base_url}/onnx/model.onnx",
         "tokenizer.json": f"{base_url}/tokenizer.json"
     }
+    force = getattr(args, "force", False)
     for filename, url in files.items():
         dest_path = dest_dir / filename
-        if not dest_path.exists() or args.force:
+        if not dest_path.exists() or force:
             await download_file(url, dest_path)
     print("Setup complete.")
 

@@ -40,7 +40,7 @@ async def test_coderag_sync_and_search(temp_db):
         code_hash="abc123hash",
         metadata={"raw_code": "def test_func(): pass"}
     )
-    mock_parser.parse_file = AsyncMock(return_value=[test_unit])
+    mock_parser.distill_file = AsyncMock(return_value=[test_unit])
 
     # 4. Setup Mock Distiller (simulates LLM summary)
     mock_distiller = MagicMock(spec=Distiller)

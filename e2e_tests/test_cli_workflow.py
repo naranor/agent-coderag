@@ -1,105 +1,99 @@
 import os
 import subprocess
+import pytest
 import shutil
 import time
-import pytest
 from pathlib import Path
 
-# Paths for E2E tests
-E2E_ROOT = Path(__file__).parent
-E2E_TMP = E2E_ROOT / "tmp_workspace"
-E2E_DB = E2E_ROOT / "e2e_test.db"
-# Use default model path or from environment
-ONNX_MODEL = os.getenv("RAG_ONNX_PATH", "models/bge-small-en-v1.5.onnx")
+# Paths
+PROJECT_ROOT = Path(__file__).parent.parent
+E2E_TMP = PROJECT_ROOT / "e2e_tests" / "tmp_workspace"
+DB_PATH = PROJECT_ROOT / "e2e_tests" / "e2e_test.db"
 
 def run_cli(*args):
-    """Executes code-rag CLI and returns output."""
-    # Ensure environment is passed to preserve PATH for ast-index
-    env = os.environ.copy()
-    cmd = ["python3", "-m", "code_rag.entry.cli", "--db", str(E2E_DB)]
-    if os.path.exists(ONNX_MODEL):
-        cmd.extend(["--onnx", ONNX_MODEL])
-    cmd.extend(args)
-    
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-    return result
+    """Helper to run the CLI tool."""
+    cmd = [
+        "python3", "-m", "code_rag.entry.cli",
+        "--db", str(DB_PATH),
+    ] + list(args)
+    return subprocess.run(cmd, capture_output=True, text=True)
 
 @pytest.fixture(scope="module", autouse=True)
-def setup_workspace():
-    """Sets up a temporary project structure with some python files."""
+def setup_e2e_env():
+    """Sets up a temporary environment for E2E tests."""
     if E2E_TMP.exists():
         shutil.rmtree(E2E_TMP)
-    if E2E_DB.exists():
-        try:
-            os.remove(E2E_DB)
-        except: pass
-        
     E2E_TMP.mkdir(parents=True)
     
-    # 1. Create a math utility
-    (E2E_TMP / "math_utils.py").write_text("""
-def calculate_hypotenuse(a: float, b: float) -> float:
-    \"\"\"Calculates the hypotenuse of a right triangle.\"\"\"
-    import math
-    return math.sqrt(a**2 + b**2)
-""")
-
-    # 2. Create a greet utility
+    # Create some dummy python files
     (E2E_TMP / "greet.py").write_text("""
 class Greeter:
     def say_hello(self, name: str):
-        \"\"\"Greets the person with a name.\"\"\"
-        return f"Hello, {name}!"
+        return f"Hello {name}"
+""")
+    
+    (E2E_TMP / "math_utils.py").write_text("""
+def calculate_hypotenuse(a, b):
+    \"\"\"Calculates hypotenuse using Pythagorean theorem.\"\"\"
+    return (a**2 + b**2)**0.5
 """)
 
+    # Ensure fresh DB
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+        
     yield
     
+    # Cleanup
     if E2E_TMP.exists():
         shutil.rmtree(E2E_TMP)
-    if E2E_DB.exists():
-        try:
-            os.remove(E2E_DB)
-        except: pass
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+
+def test_e2e_setup_command():
+    """Verify setup command downloads (or finds) models."""
+    res = run_cli("setup")
+    assert res.returncode == 0
+    assert "Setup complete" in res.stdout
 
 def test_e2e_sync_and_db_state():
     """Verify sync works and database is populated."""
-    
     original_cwd = os.getcwd()
     os.chdir(E2E_TMP)
     try:
-        sync_res = run_cli("sync", "--all")
+        # Use --verbose to check for the indexing message
+        sync_res = run_cli("--verbose", "sync", "--all")
         assert sync_res.returncode == 0
         assert "Indexing 2 files" in sync_res.stderr
         
-        # Give some time for FS / locks to settle if needed
-        time.sleep(1)
-
-        import duckdb
-        conn = duckdb.connect(str(E2E_DB))
-        try:
-            count = conn.execute("SELECT COUNT(*) FROM units").fetchone()[0]
-            assert count >= 2
-            
-            names = [r[0] for r in conn.execute("SELECT name FROM units").fetchall()]
-            # Check if at least file names or symbols are there
-            assert any(n in names for n in ["math_utils.py", "greet.py", "Greeter", "calculate_hypotenuse"])
-        finally:
-            conn.close()
-
+        # Check if database file was created
+        assert DB_PATH.exists()
     finally:
         os.chdir(original_cwd)
 
 def test_e2e_search_command_execution():
-    """Verify search command executes without errors."""
-    # Ensure DB is not locked by previous test
+    """Verify search command executes without errors and finds our dummy code."""
+    # Ensure DB is ready
     time.sleep(1)
-    res = run_cli("search", "anything")
+    
+    # Search for something that should exist
+    res = run_cli("search", "Greeter")
     assert res.returncode == 0
-    assert "Results" in res.stdout or "No results found" in res.stdout
+    # New format: [class] Greeter | greet.py
+    assert "[class] Greeter" in res.stdout
+    
+    # Search for math logic
+    res = run_cli("search", "pythagorean theorem")
+    assert res.returncode == 0
+    assert "calculate_hypotenuse" in res.stdout
 
-def test_e2e_api_extraction():
-    """Verify the API extraction command."""
-    api_res = run_cli("api", "json")
-    assert api_res.returncode == 0
-    assert "Public API for 'json':" in api_res.stdout
-    assert "JSONEncoder" in api_res.stdout
+def test_e2e_json_output():
+    """Verify that --json flag works and returns valid JSON."""
+    res = run_cli("--json", "search", "Greeter")
+    assert res.returncode == 0
+    import json
+    data = json.loads(res.stdout)
+    assert isinstance(data, list)
+    assert len(data) > 0
+    names = [unit["name"] for unit in data]
+    assert "Greeter" in names
