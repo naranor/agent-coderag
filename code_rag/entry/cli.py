@@ -13,11 +13,13 @@ os.environ["LITELLM_VERBOSE"] = "FALSE"
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 logging.getLogger("onnxruntime").setLevel(logging.ERROR)
 
+# pylint: disable=wrong-import-position
 from ..core.manager import CodeRAGManager
 from ..storage.duckdb_impl import DuckDBStorage
 from ..parsers.ast_index import AstIndexParser
 from ..intelligence.embedder import Embedder, get_default_model_dir
 from ..intelligence.distiller import Distiller, DistillerConfig
+# pylint: enable=wrong-import-position
 
 # Setup basic logging - default to WARNING for clean output
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")

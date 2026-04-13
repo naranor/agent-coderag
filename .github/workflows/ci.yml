@@ -50,4 +50,4 @@ jobs:
         
     - name: Run Prospector audit
       run: |
-        prospector code_rag --with-tool mypy --with-tool bandit --with-tool vulture
+        prospector code_rag --profile .prospector.yaml --with-tool mypy --with-tool bandit --with-tool vulture

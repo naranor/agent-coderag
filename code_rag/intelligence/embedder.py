@@ -56,8 +56,7 @@ class Embedder:
         if os.path.exists(tokenizer_file):
             try:
                 self.tokenizer = Tokenizer.from_file(tokenizer_file)
-                # bandit: ignore B106 - [PAD] is not a password
-                self.tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
+                self.tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")  # nosec B106
                 self.tokenizer.enable_truncation(max_length=512)
                 logger.debug("Loaded tokenizer from %s", tokenizer_file)
             except Exception as e:

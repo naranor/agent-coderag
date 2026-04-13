@@ -3,11 +3,12 @@ import hashlib
 import os
 import logging
 from typing import List, Optional
+from ..core.interfaces import IParser
 from ..core.models import KnowledgeUnit, UnitKind
 
 logger = logging.getLogger(__name__)
 
-class AstIndexParser:
+class AstIndexParser(IParser):
     """
     Parses Python code using the built-in AST module to extract units.
     """
