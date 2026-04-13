@@ -1,43 +1,27 @@
 import logging
 import asyncio
-from typing import List, Optional, Dict, Any
+from typing import List
 from .interfaces import IStorage, IParser, IIntelligence
-from .models import KnowledgeUnit, UnitKind
+from .models import KnowledgeUnit
 
 logger = logging.getLogger(__name__)
 
 class CodeRAGManager:
     """
-    Main orchestrator for the CodeRAG system.
-    Coordinates parsing, semantic distillation, and storage.
+    Orchestrates the RAG workflow: parsing, distillation, and storage.
     """
     
-    def __init__(
-        self, 
-        storage: IStorage, 
-        parser: IParser, 
-        intelligence: IIntelligence
-    ):
+    def __init__(self, storage: IStorage, parser: IParser, intelligence: IIntelligence):
         self.storage = storage
         self.parser = parser
         self.intelligence = intelligence
 
-    async def sync_file(self, path: str, force_distill: bool = False):
+    async def sync_file(self, file_path: str, force_distill: bool = False):
         """
-        Synchronizes a file with the knowledge base.
-        Checks hashes and triggers distillation for new/changed units.
+        Processes a single file and syncs it with the storage.
         """
-        logger.info(f"Syncing file: {path}")
-        
-        # 1. Parse current structure
-        current_units = await self.parser.parse_file(path)
-        if not current_units:
-            return
-
-        # 2. Get existing units from storage to compare hashes
-        # We need a way to get units by path from storage
-        # For simplicity, we'll assume search_units can filter or we'll add a method
-        # In this implementation, we'll just upsert and let the logic decide
+        # 1. Parse AST to get units
+        current_units = await self.parser.distill_file(file_path)
         
         for unit in current_units:
             # v5.40: Delta-distillation logic
@@ -49,20 +33,20 @@ class CodeRAGManager:
             should_distill = force_distill
             if not existing_unit:
                 should_distill = True
-                logger.info(f"New unit discovered: {unit.name}")
+                logger.info("New unit discovered: %s", unit.name)
             elif existing_unit.code_hash != unit.code_hash:
                 should_distill = True
-                logger.info(f"Unit {unit.name} changed (hash mismatch)")
+                logger.info("Unit %s changed (hash mismatch)", unit.name)
             elif not existing_unit.summary:
                 should_distill = True
-                logger.info(f"Summary missing for {unit.name}")
+                logger.info("Summary missing for %s", unit.name)
             
             if should_distill:
-                logger.info(f"Distilling summary for {unit.id}...")
+                logger.info("Distilling summary for %s...", unit.id)
                 try:
                     unit.summary = await self.intelligence.summarize(raw_code, unit.name)
                 except Exception as e:
-                    logger.error(f"Failed to distill {unit.name}: {e}")
+                    logger.error("Failed to distill %s: %s", unit.name, e)
                     # Keep old summary if available, otherwise stay None
                     unit.summary = existing_unit.summary if existing_unit else None
             else:
@@ -74,7 +58,7 @@ class CodeRAGManager:
 
     async def search(self, query: str, limit: int = 5) -> List[KnowledgeUnit]:
         """
-        Performs semantic search across the knowledge base.
+        Performs semantic search across all indexed units.
         """
         return await self.storage.search_units(query, limit=limit)
 

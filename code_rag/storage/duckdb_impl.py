@@ -1,32 +1,29 @@
 import json
 import logging
 import duckdb
-import numpy as np
 from typing import List, Optional
 from ..core.interfaces import IStorage
-from ..core.models import KnowledgeUnit, Relation, UnitKind
-from ..intelligence.embedder import Embedder
+from ..core.models import KnowledgeUnit, UnitKind
 
 logger = logging.getLogger(__name__)
 
 class DuckDBStorage(IStorage):
     """
-    DuckDB implementation of knowledge storage with VSS support.
+    DuckDB-based storage with Vector Similarity Search (VSS) capabilities.
     """
     
-    def __init__(self, db_path: str, embedder: Optional[Embedder] = None):
-        self.conn = duckdb.connect(db_path)
+    def __init__(self, db_path: str, embedder=None):
+        self.db_path = db_path
         self.embedder = embedder
-        self._init_db()
+        self.conn = duckdb.connect(self.db_path)
+        self._setup_db()
 
-    def _init_db(self):
-        """Initializes tables and VSS extension."""
-        try:
-            self.conn.execute("INSTALL vss; LOAD vss;")
-        except Exception as e:
-            logger.warning(f"Failed to load VSS extension: {e}. Vector search will be limited.")
-
-        # Table for units
+    def _setup_db(self):
+        """Initializes tables and extensions."""
+        self.conn.execute("INSTALL vss;")
+        self.conn.execute("LOAD vss;")
+        
+        # Metadata table
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS units (
                 id VARCHAR PRIMARY KEY,
@@ -34,31 +31,21 @@ class DuckDBStorage(IStorage):
                 name VARCHAR,
                 path VARCHAR,
                 signature VARCHAR,
-                summary TEXT,
+                summary VARCHAR,
                 code_hash VARCHAR,
                 tags VARCHAR[],
                 metadata JSON
             )
         """)
-
-        # Table for relations
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS relations (
-                from_id VARCHAR,
-                to_id VARCHAR,
-                type VARCHAR,
-                PRIMARY KEY (from_id, to_id, type)
-            )
-        """)
-
-        # Table for embeddings (VSS)
-        # Note: 384 is the dimension for MiniLM models
+        
+        # Vector table (MiniLM dimension is 384)
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS unit_embeddings (
                 id VARCHAR PRIMARY KEY,
                 vec FLOAT[384]
             )
         """)
+        logger.info("Storage initialized at %s", self.db_path)
 
     async def upsert_unit(self, unit: KnowledgeUnit):
         """Inserts or updates a knowledge unit and its embedding."""
@@ -99,17 +86,15 @@ class DuckDBStorage(IStorage):
                 LIMIT ?
             """, [f"%{query}%", f"%{query}%", limit]).fetchall()
         else:
-            # Vector similarity search
-            query_vec = self.embedder.embed([query])[0].tolist()
+            query_vec = self.embedder.embed([query])[0]
             res = self.conn.execute("""
-                SELECT u.*, 
-                       array_distance(ue.vec, ?::FLOAT[384]) as distance
+                SELECT u.*, array_distance(e.vec, ?::FLOAT[384]) as dist
                 FROM units u
-                JOIN unit_embeddings ue ON u.id = ue.id
-                ORDER BY distance ASC
+                JOIN unit_embeddings e ON u.id = e.id
+                ORDER BY dist ASC
                 LIMIT ?
-            """, [query_vec, limit]).fetchall()
-
+            """, [query_vec.tolist(), limit]).fetchall()
+            
         return [self._map_row_to_unit(row) for row in res]
 
     def _map_row_to_unit(self, row) -> KnowledgeUnit:

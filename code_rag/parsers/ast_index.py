@@ -1,103 +1,80 @@
-import re
-import logging
-import subprocess
+import ast
 import hashlib
-from pathlib import Path
-from typing import List, Dict, Any, Optional
-from ..core.interfaces import IParser
+import os
+import logging
+from typing import List, Optional
 from ..core.models import KnowledgeUnit, UnitKind
 
 logger = logging.getLogger(__name__)
 
-class AstIndexParser(IParser):
+class AstIndexParser:
     """
-    Parser that uses ast-index CLI to discover code structure.
-    Uses textual output parsing for maximum stability.
+    Parses Python code using the built-in AST module to extract units.
     """
     
-    def __init__(self, binary_path: str = "ast-index"):
-        self.binary_path = binary_path
-
-    def _calculate_hash(self, text: str) -> str:
-        return hashlib.sha256(text.encode()).hexdigest()
-
-    async def parse_file(self, path: str) -> List[KnowledgeUnit]:
+    async def distill_file(self, file_path: str) -> List[KnowledgeUnit]:
         """
-        Runs 'ast-index outline' and parses the textual results.
-        Example output line: '  :182 V4Engine [class]'
+        Parses a file and returns a list of knowledge units.
         """
-        try:
-            cmd = [self.binary_path, "outline", path]
-            process = subprocess.run(cmd, capture_output=True, text=True)
-            
-            if process.returncode != 0:
-                logger.error(f"ast-index failed for {path}: {process.stderr}")
-                return []
-
-            # 1. Read file content for bodies and signatures
-            try:
-                with open(path, "r") as f:
-                    file_content = f.read()
-                lines = file_content.splitlines()
-            except Exception as e:
-                logger.error(f"Failed to read file {path}: {e}")
-                return []
-
-            units = []
-            
-            # 2. Parse textual outline
-            # Regex to match: optional spaces, colon, line number, name, optional signature, [kind]
-            # Pattern: \s*:(\d+)\s+([^\s\[]+)(.*?)\s*\[([^\]]+)\]
-            pattern = re.compile(r"\s*:(\d+)\s+([^\s\[]+)(.*?)\s*\[([^\]]+)\]")
-            
-            for line in process.stdout.splitlines():
-                match = pattern.search(line)
-                if not match:
-                    continue
-                
-                line_num = int(match.group(1))
-                name = match.group(2)
-                signature = match.group(3).strip()
-                kind_str = match.group(4).lower()
-                
-                # Map kinds
-                kind_map = {
-                    "class": UnitKind.CLASS,
-                    "function": UnitKind.FUNCTION,
-                    "method": UnitKind.METHOD,
-                    "module": UnitKind.MODULE
-                }
-                kind = kind_map.get(kind_str, UnitKind.FUNCTION)
-                
-                # Extract code body (heuristic: 50 lines or until EOF)
-                # In a real system, we'd use line numbers of the NEXT symbol
-                body = "\n".join(lines[line_num-1 : line_num+50])
-                
-                units.append(KnowledgeUnit(
-                    id=f"{path}:{name}",
-                    kind=kind,
-                    name=name,
-                    path=path,
-                    signature=signature or None,
-                    code_hash=self._calculate_hash(body),
-                    metadata={"raw_code": body}
-                ))
-            
-            # 3. Handle whole module if no symbols found
-            if not units:
-                units.append(KnowledgeUnit(
-                    id=f"{path}:module",
-                    kind=UnitKind.MODULE,
-                    name=Path(path).name,
-                    path=path,
-                    code_hash=self._calculate_hash(file_content),
-                    metadata={"raw_code": file_content}
-                ))
-
-            return units
-        except Exception as e:
-            logger.error(f"Error in AstIndexParser for {path}: {e}")
+        if not os.path.exists(file_path):
             return []
 
-    async def get_relations(self, path: str) -> List[Any]:
-        return []
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                source = f.read()
+            
+            tree = ast.parse(source)
+            units = []
+            
+            # Module level unit
+            file_hash = hashlib.sha256(source.strip().encode()).hexdigest()
+            units.append(KnowledgeUnit(
+                id=f"{file_path}:module",
+                kind=UnitKind.MODULE,
+                name=os.path.basename(file_path),
+                path=file_path,
+                code_hash=file_hash,
+                metadata={"raw_code": source}
+            ))
+
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    unit = self._parse_node(node, file_path, source)
+                    if unit:
+                        units.append(unit)
+            
+            return units
+        except Exception as e:
+            logger.error("Failed to parse %s: %s", file_path, e)
+            return []
+
+    def _parse_node(self, node, file_path: str, source: str) -> Optional[KnowledgeUnit]:
+        """Helper to create a KnowledgeUnit from an AST node."""
+        kind = UnitKind.FUNCTION
+        if isinstance(node, ast.ClassDef):
+            kind = UnitKind.CLASS
+        elif hasattr(node, "parent") and isinstance(node.parent, ast.ClassDef):
+            kind = UnitKind.METHOD
+
+        # Extract source code for the node
+        try:
+            node_source = ast.get_source_segment(source, node) or ""
+            node_hash = hashlib.sha256(node_source.strip().encode()).hexdigest()
+            
+            # Simplified signature extraction
+            signature = None
+            if hasattr(node, "args"):
+                args = [arg.arg for arg in node.args.args]
+                signature = f"({', '.join(args)})"
+
+            return KnowledgeUnit(
+                id=f"{file_path}:{node.name}",
+                kind=kind,
+                name=node.name,
+                path=file_path,
+                signature=signature,
+                code_hash=node_hash,
+                metadata={"raw_code": node_source}
+            )
+        except Exception:
+            return None

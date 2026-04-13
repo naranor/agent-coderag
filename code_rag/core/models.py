@@ -15,14 +15,14 @@ class RelationType(str, Enum):
     DEFINES = "defines"
 
 class KnowledgeUnit(BaseModel):
-    """Minimal atom of code knowledge."""
-    id: str  # Global unique ID (hash of path and name)
+    """Represents a piece of code (function, class, module)."""
+    id: str
     kind: UnitKind
     name: str
     path: str
     signature: Optional[str] = None
-    summary: Optional[str] = None  # Distilled intent
-    code_hash: str                 # For change tracking
+    summary: Optional[str] = None
+    code_hash: str
     tags: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 

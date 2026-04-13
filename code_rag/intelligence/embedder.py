@@ -1,7 +1,7 @@
 import os
 import logging
 import numpy as np
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 import onnxruntime as ort
 from tokenizers import Tokenizer
@@ -26,25 +26,28 @@ class Embedder:
     Local multilingual embedder using ONNX Runtime and Tokenizers.
     """
     
-    def __init__(self, model_path: str = None):
+    def __init__(self, model_path: Optional[str] = None):
         self.model_path = model_path
-        self.session = None
-        self.tokenizer = None
+        self.session: Optional[ort.InferenceSession] = None
+        self.tokenizer: Optional[Tokenizer] = None
         
         if not self.model_path:
             global_dir = get_default_model_dir()
             potential_path = global_dir / "model.onnx"
             if potential_path.exists():
                 self.model_path = str(potential_path)
-                logger.info(f"Using global model from {self.model_path}")
+                logger.info("Using global model from %s", self.model_path)
             else:
-                logger.warning(f"No model found at {potential_path}. Please run 'code-rag setup'.")
+                logger.warning("No model found at %s. Please run 'code-rag setup'.", potential_path)
         
         if self.model_path and os.path.exists(self.model_path):
             self._init_tokenizer()
             self._init_session()
 
     def _init_tokenizer(self):
+        if not self.model_path:
+            return
+            
         model_dir = os.path.dirname(self.model_path)
         tokenizer_file = os.path.join(model_dir, "tokenizer.json")
         if not os.path.exists(tokenizer_file):
@@ -53,20 +56,24 @@ class Embedder:
         if os.path.exists(tokenizer_file):
             try:
                 self.tokenizer = Tokenizer.from_file(tokenizer_file)
+                # bandit: ignore B106 - [PAD] is not a password
                 self.tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
                 self.tokenizer.enable_truncation(max_length=512)
-                logger.debug(f"Loaded tokenizer from {tokenizer_file}")
+                logger.debug("Loaded tokenizer from %s", tokenizer_file)
             except Exception as e:
-                logger.error(f"Failed to load tokenizer from {tokenizer_file}: {e}")
+                logger.error("Failed to load tokenizer from %s: %s", tokenizer_file, e)
         else:
-            logger.error(f"tokenizer.json not found near {self.model_path}")
+            logger.error("tokenizer.json not found near %s", self.model_path)
 
     def _init_session(self):
+        if not self.model_path:
+            return
+            
         try:
             self.session = ort.InferenceSession(self.model_path, providers=['CPUExecutionProvider'])
-            logger.info(f"ONNX session initialized with model: {self.model_path}")
+            logger.info("ONNX session initialized with model: %s", self.model_path)
         except Exception as e:
-            logger.error(f"Failed to initialize ONNX session: {e}")
+            logger.error("Failed to initialize ONNX session: %s", e)
 
     def embed(self, texts: List[str]) -> np.ndarray:
         if not self.session or not self.tokenizer:

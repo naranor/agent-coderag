@@ -5,7 +5,7 @@ import sys
 import logging
 import json
 from pathlib import Path
-from typing import List
+from typing import Optional
 import httpx
 
 # Suppress external library noise before they are imported by other modules
@@ -23,7 +23,7 @@ from ..intelligence.distiller import Distiller, DistillerConfig
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("code-rag-cli")
 
-def get_manager(db_path: str, onnx_path: str = None, verbose: bool = False):
+def get_manager(db_path: str, onnx_path: Optional[str] = None, verbose: bool = False):
     """Initializes the RAG manager."""
     if verbose:
         logging.getLogger().setLevel(logging.INFO)
@@ -46,7 +46,8 @@ def should_index(path: Path) -> bool:
     p_str = str(path)
     exclude_patterns = ["tests/", "venv/", "__pycache__/", ".git/"]
     for pattern in exclude_patterns:
-        if pattern in p_str: return False
+        if pattern in p_str:
+            return False
     return path.suffix == ".py"
 
 async def sync_cmd(args):
@@ -57,11 +58,13 @@ async def sync_cmd(args):
             await manager.sync_file(str(target_path), force_distill=args.force)
         else:
             paths = [str(p) for p in target_path.rglob("*.py") if should_index(p)]
-            if args.verbose: logger.info(f"Indexing {len(paths)} files...")
+            if args.verbose:
+                logger.info("Indexing %d files...", len(paths))
             await manager.sync_project(paths, force_distill=args.force)
     elif args.all:
         paths = [str(p) for p in Path(".").rglob("*.py") if should_index(p)]
-        if args.verbose: logger.info(f"Indexing {len(paths)} files...")
+        if args.verbose:
+            logger.info("Indexing %d files...", len(paths))
         await manager.sync_project(paths, force_distill=args.force)
     
     if not args.json:
@@ -92,7 +95,8 @@ async def download_file(url: str, dest: Path):
     dest.parent.mkdir(parents=True, exist_ok=True)
     async with httpx.AsyncClient(follow_redirects=True) as client:
         async with client.stream("GET", url) as response:
-            if response.status_code != 200: return False
+            if response.status_code != 200:
+                return False
             with open(dest, "wb") as f:
                 async for chunk in response.aiter_bytes():
                     f.write(chunk)
@@ -101,7 +105,10 @@ async def download_file(url: str, dest: Path):
 async def setup_cmd(args):
     dest_dir = get_default_model_dir()
     base_url = "https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main"
-    files = {"model.onnx": f"{base_url}/onnx/model.onnx", "tokenizer.json": f"{base_url}/tokenizer.json"}
+    files = {
+        "model.onnx": f"{base_url}/onnx/model.onnx",
+        "tokenizer.json": f"{base_url}/tokenizer.json"
+    }
     for filename, url in files.items():
         dest_path = dest_dir / filename
         if not dest_path.exists() or args.force:
@@ -110,10 +117,14 @@ async def setup_cmd(args):
 
 def config_cmd(args):
     config = DistillerConfig.load()
-    if args.url: config.api_base = args.url
-    if args.key: config.api_key = args.key
-    if args.model: config.model = args.model
-    if args.provider: config.provider = args.provider
+    if args.url:
+        config.api_base = args.url
+    if args.key:
+        config.api_key = args.key
+    if args.model:
+        config.model = args.model
+    if args.provider:
+        config.provider = args.provider
     config.save()
     if args.json:
         print(json.dumps(config.model_dump()))
@@ -123,7 +134,8 @@ def config_cmd(args):
 async def rebuild_cmd(args):
     db_path = Path(args.db)
     if db_path.exists():
-        if args.verbose: logger.info(f"Removing old database: {db_path}")
+        if args.verbose:
+            logger.info("Removing old database: %s", db_path)
         db_path.unlink()
     
     # Trigger full sync
@@ -131,6 +143,7 @@ async def rebuild_cmd(args):
     args.force = True
     args.path = None
     await sync_cmd(args)
+
 
 def main():
     parser = argparse.ArgumentParser(description="CodeRAG CLI Tool")
@@ -163,17 +176,23 @@ def main():
     args = parser.parse_args()
 
     try:
-        if args.command == "setup": asyncio.run(setup_cmd(args))
-        elif args.command == "config": config_cmd(args)
-        elif args.command == "rebuild": asyncio.run(rebuild_cmd(args))
-        elif args.command == "sync": asyncio.run(sync_cmd(args))
-        elif args.command == "search": asyncio.run(search_cmd(args))
+        if args.command == "setup":
+            asyncio.run(setup_cmd(args))
+        elif args.command == "config":
+            config_cmd(args)
+        elif args.command == "rebuild":
+            asyncio.run(rebuild_cmd(args))
+        elif args.command == "sync":
+            asyncio.run(sync_cmd(args))
+        elif args.command == "search":
+            asyncio.run(search_cmd(args))
     except Exception as e:
         if args.json:
             print(json.dumps({"error": str(e)}))
         else:
             logger.error(e)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

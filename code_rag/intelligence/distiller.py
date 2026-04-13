@@ -1,20 +1,17 @@
 import logging
 import json
-import os
 import litellm
-from pydantic import BaseModel, Field
-from typing import Optional
-from pathlib import Path
+from pydantic import BaseModel
 from ..core.interfaces import IIntelligence
 from .embedder import get_global_dir
 
 logger = logging.getLogger(__name__)
 
 class DistillerConfig(BaseModel):
-    model: str = "glm-5:cloud"
-    api_base: str = "http://localhost:11434"
-    api_key: str = "not-needed"
-    provider: str = "ollama"
+    model: str = "auto"
+    api_base: str = "http://localhost:8081/api/v1"
+    api_key: str = "sk-not-required"
+    provider: str = "openai"
     temperature: float = 0.0
 
     @classmethod
@@ -23,11 +20,11 @@ class DistillerConfig(BaseModel):
         config_path = get_global_dir() / "config.json"
         if config_path.exists():
             try:
-                with open(config_path, "r") as f:
+                with open(config_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     return cls(**data)
             except Exception as e:
-                logger.error(f"Failed to load config from {config_path}: {e}")
+                logger.error("Failed to load config from %s: %s", config_path, e)
         return cls()
 
     def save(self):
@@ -35,11 +32,11 @@ class DistillerConfig(BaseModel):
         config_path = get_global_dir() / "config.json"
         config_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with open(config_path, "w") as f:
+            with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(self.model_dump(), f, indent=4)
-            logger.info(f"Config saved to {config_path}")
+            logger.info("Config saved to %s", config_path)
         except Exception as e:
-            logger.error(f"Failed to save config to {config_path}: {e}")
+            logger.error("Failed to save config to %s: %s", config_path, e)
 
 class Distiller(IIntelligence):
     """

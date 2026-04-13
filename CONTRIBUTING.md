@@ -6,7 +6,7 @@ Thank you for your interest in contributing to CodeRAG!
 
 ```bash
 # Clone the repository
-git clone https://github.com/gemini/code-rag
+git clone https://github.com/naranor/code-rag
 cd code-rag
 
 # Create virtual environment
