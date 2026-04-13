@@ -37,6 +37,7 @@ ENV/
 .code_rag.db.wal
 .gemini/code_rag.db
 .gemini/code_rag.db.wal
+models/
 
 # E2E Tests temporary files
 e2e_tests/tmp_workspace/
@@ -47,3 +48,4 @@ e2e_tests/e2e_test.db.wal
 .coverage
 htmlcov/
 .pytest_cache/
+/docs/superpowers/
