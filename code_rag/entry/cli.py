@@ -13,11 +13,14 @@ os.environ["LITELLM_VERBOSE"] = "FALSE"
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 logging.getLogger("onnxruntime").setLevel(logging.ERROR)
 
+# pylint: disable=wrong-import-position
 from ..core.manager import CodeRAGManager
 from ..storage.duckdb_impl import DuckDBStorage
 from ..parsers.ast_index import AstIndexParser
 from ..intelligence.embedder import Embedder, get_default_model_dir
 from ..intelligence.distiller import Distiller, DistillerConfig
+from ..discovery.dependency import extract_library_api
+# pylint: enable=wrong-import-position
 
 # Setup basic logging - default to WARNING for clean output
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
@@ -92,7 +95,6 @@ async def search_cmd(args):
         print("-" * 20)
 
 async def api_cmd(args):
-    from ..discovery.dependency import extract_library_api
     output = await extract_library_api(args.library)
     if args.json:
         print(json.dumps({"api": output}))
