@@ -1,4 +1,3 @@
 vulture:
   run: true
-  options:
-    min-confidence: 80 # Ignore low-confidence matches typical for Pydantic/Enum fields
+  # Using '# used' comments in code for specific false positives

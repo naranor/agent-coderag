@@ -9,10 +9,10 @@ class UnitKind(str, Enum):
     METHOD = "method"
 
 class RelationType(str, Enum):
-    IMPORTS = "imports"
-    CALLS = "calls"
-    INHERITS = "inherits"
-    DEFINES = "defines"
+    IMPORTS = "imports" # used
+    CALLS = "calls" # used
+    INHERITS = "inherits" # used
+    DEFINES = "defines" # used
 
 class KnowledgeUnit(BaseModel):
     """Represents a piece of code (function, class, module)."""
@@ -28,6 +28,6 @@ class KnowledgeUnit(BaseModel):
 
 class Relation(BaseModel):
     """Connection between knowledge units."""
-    from_id: str
-    to_id: str
-    type: RelationType
+    from_id: str # used
+    to_id: str # used
+    type: RelationType # used
