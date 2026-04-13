@@ -16,9 +16,12 @@ class IStorage(ABC):
     async def upsert_unit(self, unit: KnowledgeUnit): pass
     
     @abstractmethod
+    async def get_unit(self, unit_id: str) -> Optional[KnowledgeUnit]: pass
+    
+    @abstractmethod
     async def search_units(self, query: str, limit: int = 5) -> List[KnowledgeUnit]: pass
 
 class IIntelligence(ABC):
     """Interface for LLM-based analysis (distillation, embeddings)."""
     @abstractmethod
-    async def summarize(self, unit: KnowledgeUnit) -> str: pass
+    async def summarize(self, code: str, unit_name: str) -> str: pass

@@ -41,17 +41,33 @@ class CodeRAGManager:
         
         for unit in current_units:
             # v5.40: Delta-distillation logic
-            # Extract code from metadata (temporary)
             raw_code = unit.metadata.pop("raw_code", "")
             
-            should_distill = force_distill
+            # 2. Get existing unit to check hash
+            existing_unit = await self.storage.get_unit(unit.id)
             
-            # TODO: Check existing hash in DB before distilling
-            # For now, we'll distill if force is True or summary is missing
+            should_distill = force_distill
+            if not existing_unit:
+                should_distill = True
+                logger.info(f"New unit discovered: {unit.name}")
+            elif existing_unit.code_hash != unit.code_hash:
+                should_distill = True
+                logger.info(f"Unit {unit.name} changed (hash mismatch)")
+            elif not existing_unit.summary:
+                should_distill = True
+                logger.info(f"Summary missing for {unit.name}")
             
             if should_distill:
-                logger.info(f"Distilling summary for {unit.id}")
-                unit.summary = await self.intelligence.summarize(raw_code, unit.name)
+                logger.info(f"Distilling summary for {unit.id}...")
+                try:
+                    unit.summary = await self.intelligence.summarize(raw_code, unit.name)
+                except Exception as e:
+                    logger.error(f"Failed to distill {unit.name}: {e}")
+                    # Keep old summary if available, otherwise stay None
+                    unit.summary = existing_unit.summary if existing_unit else None
+            else:
+                # Reuse existing summary if code hasn't changed
+                unit.summary = existing_unit.summary if existing_unit else None
             
             # 3. Save to storage (includes embedding generation)
             await self.storage.upsert_unit(unit)

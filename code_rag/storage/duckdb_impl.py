@@ -72,13 +72,22 @@ class DuckDBStorage(IStorage):
             unit.tags, json.dumps(unit.metadata)
         ])
 
-        # 2. Update embedding if summary is present and embedder is available
-        if self.embedder and unit.summary:
-            vec = self.embedder.embed([unit.summary])[0]
+        # 2. Update embedding
+        if self.embedder:
+            # Fallback to name/signature if summary is missing
+            text_to_embed = unit.summary or f"{unit.kind.value} {unit.name} {unit.signature or ''}"
+            vec = self.embedder.embed([text_to_embed])[0]
             self.conn.execute("""
                 INSERT OR REPLACE INTO unit_embeddings (id, vec)
                 VALUES (?, ?)
             """, [unit.id, vec.tolist()])
+
+    async def get_unit(self, unit_id: str) -> Optional[KnowledgeUnit]:
+        """Retrieves a unit by its unique ID."""
+        res = self.conn.execute("SELECT * FROM units WHERE id = ?", [unit_id]).fetchone()
+        if not res:
+            return None
+        return self._map_row_to_unit(res)
 
     async def search_units(self, query: str, limit: int = 5) -> List[KnowledgeUnit]:
         """Hybrid search using VSS and FTS."""

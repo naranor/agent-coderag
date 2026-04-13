@@ -2,7 +2,7 @@ duckdb
 numpy
 litellm
 onnxruntime
-transformers
+tokenizers
 pydantic
 httpx
 aiofiles

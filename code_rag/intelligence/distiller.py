@@ -1,18 +1,45 @@
 import logging
+import json
+import os
 import litellm
 from pydantic import BaseModel, Field
 from typing import Optional
+from pathlib import Path
 from ..core.interfaces import IIntelligence
-from ..core.models import KnowledgeUnit
+from .embedder import get_global_dir
 
 logger = logging.getLogger(__name__)
 
 class DistillerConfig(BaseModel):
-    model: str = "auto"
-    api_base: Optional[str] = "http://192.168.92.2:8383/api/v1"
-    api_key: Optional[str] = "sk-placeholder"
-    provider: str = "openai" # "openai" or "ollama"
+    model: str = "glm-5:cloud"
+    api_base: str = "http://localhost:11434"
+    api_key: str = "not-needed"
+    provider: str = "ollama"
     temperature: float = 0.0
+
+    @classmethod
+    def load(cls) -> "DistillerConfig":
+        """Loads config from the global code-rag directory."""
+        config_path = get_global_dir() / "config.json"
+        if config_path.exists():
+            try:
+                with open(config_path, "r") as f:
+                    data = json.load(f)
+                    return cls(**data)
+            except Exception as e:
+                logger.error(f"Failed to load config from {config_path}: {e}")
+        return cls()
+
+    def save(self):
+        """Saves current config to the global code-rag directory."""
+        config_path = get_global_dir() / "config.json"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(config_path, "w") as f:
+                json.dump(self.model_dump(), f, indent=4)
+            logger.info(f"Config saved to {config_path}")
+        except Exception as e:
+            logger.error(f"Failed to save config to {config_path}: {e}")
 
 class Distiller(IIntelligence):
     """
@@ -38,25 +65,19 @@ CODE:
 
 SUMMARY:
 """
-        try:
-            # Prepare model identifier for LiteLLM
-            # For Ollama, it usually looks like "ollama/llama3"
-            model_id = self.config.model
-            if self.config.provider == "ollama" and not model_id.startswith("ollama/"):
-                model_id = f"ollama/{model_id}"
+        model_id = self.config.model
+        if self.config.provider == "ollama" and not model_id.startswith("ollama/"):
+            model_id = f"ollama/{model_id}"
 
-            response = await litellm.acompletion(
-                model=model_id,
-                messages=[{"role": "user", "content": prompt}],
-                api_base=self.config.api_base,
-                api_key=self.config.api_key,
-                temperature=self.config.temperature,
-                timeout=30,
-                custom_llm_provider="openai"
-            )
-            
-            summary = response.choices[0].message.content.strip()
-            return summary
-        except Exception as e:
-            logger.error(f"Distillation failed for {unit_name}: {e}")
-            return f"Error during distillation: {str(e)}"
+        response = await litellm.acompletion(
+            model=model_id,
+            messages=[{"role": "user", "content": prompt}],
+            api_base=self.config.api_base,
+            api_key=self.config.api_key,
+            temperature=self.config.temperature,
+            timeout=30,
+            custom_llm_provider=self.config.provider
+        )
+        
+        summary = response.choices[0].message.content.strip()
+        return summary
