@@ -12,8 +12,8 @@
 ## 📖 Table of Contents
 - [🧠 The Problem: The API Knowledge Gap](#-the-problem-the-api-knowledge-gap)
 - [🚀 The Solution: Real-Time Contextual Truth](#-the-solution-real-time-contextual-truth)
-- [📊 CodeRAG vs Standard RAG](#-coderag-vs-standard-rag)
 - [🛠 How it Works](#-how-it-works)
+- [📡 API Discovery](#-api-discovery)
 - [🏃 Quick Start](#-quick-start)
 - [🤖 For AI Agents](#-for-ai-agents)
 - [🔧 Development](#-development)
@@ -67,6 +67,15 @@ graph TD
 
 ---
 
+## 📡 API Discovery
+To help your agent understand a specific library version installed in your environment:
+```bash
+code-rag api pydantic
+```
+Returns the *live* public API, methods, and signatures.
+
+---
+
 ## 🏃 Quick Start
 
 ### 1. Install
@@ -113,28 +122,6 @@ CodeRAG is built specifically for programmatic consumption.
 ---
 
 ## 🔧 Development
-
-### Running Tests
-```bash
-pytest tests/
-pytest e2e_tests/
-```
-
-### Pre-commit Hooks
-We use `pre-commit` to maintain high code standards:
-```bash
-pip install pre-commit
-pre-commit install
-```
-
----
-
-## 📄 License
-MIT © 2026 Igor Boloban
-
-## 🙏 Acknowledgments
-This project stands on the shoulders of giants. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for a full list of open-source libraries used in CodeRAG.
-# 🔧 Development
 
 ### Running Tests
 ```bash

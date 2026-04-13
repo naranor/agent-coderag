@@ -13,13 +13,11 @@ os.environ["LITELLM_VERBOSE"] = "FALSE"
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 logging.getLogger("onnxruntime").setLevel(logging.ERROR)
 
-# pylint: disable=wrong-import-position
 from ..core.manager import CodeRAGManager
 from ..storage.duckdb_impl import DuckDBStorage
 from ..parsers.ast_index import AstIndexParser
 from ..intelligence.embedder import Embedder, get_default_model_dir
 from ..intelligence.distiller import Distiller, DistillerConfig
-# pylint: enable=wrong-import-position
 
 # Setup basic logging - default to WARNING for clean output
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
@@ -92,6 +90,14 @@ async def search_cmd(args):
         if unit.summary:
             print(f"  {unit.summary}")
         print("-" * 20)
+
+async def api_cmd(args):
+    from ..discovery.dependency import extract_library_api
+    output = await extract_library_api(args.library)
+    if args.json:
+        print(json.dumps({"api": output}))
+    else:
+        print(output)
 
 async def download_file(url: str, dest: Path):
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -176,6 +182,9 @@ def main():
     search_p.add_argument("query", help="Query")
     search_p.add_argument("--limit", type=int, default=5, help="Max results")
 
+    api_p = subparsers.add_parser("api", help="Discover library API")
+    api_p.add_argument("library", help="Library name")
+
     args = parser.parse_args()
 
     try:
@@ -189,6 +198,8 @@ def main():
             asyncio.run(sync_cmd(args))
         elif args.command == "search":
             asyncio.run(search_cmd(args))
+        elif args.command == "api":
+            asyncio.run(api_cmd(args))
     except Exception as e:
         if args.json:
             print(json.dumps({"error": str(e)}))
