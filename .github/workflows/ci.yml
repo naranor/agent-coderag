@@ -2,34 +2,50 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [ master, main ]
   pull_request:
-    branches: [main, master]
+    branches: [ master, main ]
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install .
+        pip install pytest pytest-asyncio numpy duckdb tokenizers onnxruntime litellm pydantic
+        
+    - name: Run unit tests
+      run: |
+        pytest tests/
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Create virtual environment
-        run: |
-          python -m venv venv
-          source venv/bin/activate
-
-      - name: Install dependencies
-        run: |
-          pip install -e .
-          pip install pytest pytest-asyncio
-
-      - name: Run tests
-        run: pytest
-
-      - name: Run linter
-        run: pip install ruff && ruff check .
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        
+    - name: Install linting tools
+      run: |
+        pip install prospector[with_mypy,with_bandit,with_vulture]
+        
+    - name: Run Prospector audit
+      run: |
+        prospector code_rag --with-tool mypy --with-tool bandit --with-tool vulture
