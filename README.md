@@ -44,18 +44,6 @@ CodeRAG acts as a lightweight semantic bridge between your local environment and
 
 ---
 
-## 📊 CodeRAG vs Standard RAG
-
-| Feature | Standard RAG | **CodeRAG** |
-| :--- | :--- | :--- |
-| **Dependencies** | PyTorch, Transformers (~1GB) | **Tokenizers, ONNX (~50MB)** |
-| **Setup Time** | Minutes (downloads) | **Seconds (`code-rag setup`)** |
-| **Context Usage** | High (sends full files) | **Low (sends technical intent)** |
-| **API Freshness** | Outdated (training data) | **Real-time (local extraction)** |
-| **Speed** | Slow (Heavy runtime) | **Instant (Rust-based tokenization)** |
-
----
-
 ## 🛠 How it Works
 
 ```mermaid
@@ -125,6 +113,28 @@ CodeRAG is built specifically for programmatic consumption.
 ---
 
 ## 🔧 Development
+
+### Running Tests
+```bash
+pytest tests/
+pytest e2e_tests/
+```
+
+### Pre-commit Hooks
+We use `pre-commit` to maintain high code standards:
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+---
+
+## 📄 License
+MIT © 2026 Igor Boloban
+
+## 🙏 Acknowledgments
+This project stands on the shoulders of giants. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for a full list of open-source libraries used in CodeRAG.
+# 🔧 Development
 
 ### Running Tests
 ```bash
