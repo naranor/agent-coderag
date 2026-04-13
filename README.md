@@ -4,13 +4,26 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![No PyTorch](https://img.shields.io/badge/Footprint-No_PyTorch-green.svg)](#key-technologies)
+[![No PyTorch](https://img.shields.io/badge/Footprint-No_PyTorch-green.svg)](#-key-technologies)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+---
+
+## 📖 Table of Contents
+- [🧠 The Problem: The API Knowledge Gap](#-the-problem-the-api-knowledge-gap)
+- [🚀 The Solution: Real-Time Contextual Truth](#-the-solution-real-time-contextual-truth)
+- [📊 CodeRAG vs Standard RAG](#-coderag-vs-standard-rag)
+- [🛠 How it Works](#-how-it-works)
+- [🏃 Quick Start](#-quick-start)
+- [🤖 For AI Agents](#-for-ai-agents)
+- [🔧 Development](#-development)
+- [📄 License](#-license)
 
 ---
 
 ## 🧠 The Problem: The API Knowledge Gap
 
-AI coding agents often hallucinate when calling library APIs because their training data is static. This leads to a "Fail-Fix-Fail" cycle:
+AI coding agents often hallucinate when calling library APIs because their training data is static. This leads to a **"Fail-Fix-Fail" cycle**:
 
 1.  **Broken Code**: Agents use deprecated parameters or non-existent methods from outdated versions.
 2.  **Token Waste**: You provide the error, the agent tries to fix it using more outdated data, consuming thousands of tokens in a loop.
@@ -26,8 +39,20 @@ AI coding agents often hallucinate when calling library APIs because their train
 CodeRAG acts as a lightweight semantic bridge between your local environment and the LLM. 
 
 *   **API Discovery**: Extracts *actual* signatures from your installed libraries.
-*   **Semantic Retrieval**: Provides the LLM with the exact "Intent" of your code units, indexed locally via ONNX.
-*   **Token Efficiency**: Instead of sending whole files, CodeRAG distills code into compact semantic summaries, saving up to 80% of context window tokens.
+*   **Semantic Retrieval**: Provides the LLM with the exact **Intent** of your code units, indexed locally via ONNX.
+*   **Token Efficiency**: Instead of sending whole files, CodeRAG distills code into compact semantic summaries, **saving up to 80% of context window tokens**.
+
+---
+
+## 📊 CodeRAG vs Standard RAG
+
+| Feature | Standard RAG | **CodeRAG** |
+| :--- | :--- | :--- |
+| **Dependencies** | PyTorch, Transformers (~1GB) | **Tokenizers, ONNX (~50MB)** |
+| **Setup Time** | Minutes (downloads) | **Seconds (`code-rag setup`)** |
+| **Context Usage** | High (sends full files) | **Low (sends technical intent)** |
+| **API Freshness** | Outdated (training data) | **Real-time (local extraction)** |
+| **Speed** | Slow (Heavy runtime) | **Instant (Rust-based tokenization)** |
 
 ---
 
@@ -46,11 +71,11 @@ graph TD
     H --> I[Semantic Search / JSON API]
 ```
 
-### Key Technologies
-*   **No PyTorch**: Uses `onnxruntime` and `tokenizers` (Rust) for a tiny footprint (~50MB vs ~1GB).
-*   **DuckDB**: High-performance vector similarity search stored in a single local file.
-*   **LiteLLM**: Support for 100+ LLM providers (OpenAI, Anthropic, Ollama, etc.) for distillation.
-*   **Delta-Sync**: Uses SHA-256 hashing to only re-distill changed code, saving your API budget.
+### ✨ Key Features
+*   **⚡ No PyTorch**: Uses `onnxruntime` and `tokenizers` (Rust) for a tiny footprint and instant startup.
+*   **💾 DuckDB VSS**: High-performance vector similarity search stored in a single local file.
+*   **🔄 Delta-Sync**: Uses SHA-256 hashing to only re-distill changed code, saving your API budget.
+*   **🔌 Hybrid Intelligence**: Works offline using name-based embeddings; adds AI-distilled reasoning when an LLM is connected.
 
 ---
 
@@ -78,27 +103,58 @@ code-rag sync --all
 ```
 
 ### 5. Search
-*   **Human Mode**: `code-rag search "how to handle errors"`
-*   **Agent Mode (JSON)**: `code-rag --json search "data storage" --limit 3`
-
----
-
-## 📡 API Discovery
-To help your agent understand a specific library version installed in your environment:
-```bash
-code-rag api pydantic
-```
-Returns the *live* public API, methods, and signatures.
-
-## 🔌 Hybrid Intelligence: Works Offline
-CodeRAG is useful even without an LLM:
-*   **Offline Mode**: Uses **Fallback Embeddings** (based on names and signatures).
-*   **AI-Enhanced Mode**: Adds a "Reasoning Layer" via LLM distillation to explain code intent.
+*   **Human Mode (Compact)**:
+    ```bash
+    code-rag search "how to handle errors"
+    ```
+*   **Agent Mode (JSON)**:
+    ```bash
+    code-rag --json search "data storage" --limit 1
+    ```
 
 ---
 
 ## 🤖 For AI Agents
-If you are an AI Agent, use this tool to explore the codebase without reading every file. Prefer `--json` output for parsing.
+
+CodeRAG is built specifically for programmatic consumption.
+
+### Agent Strategy
+1.  **Search First**: Use `code-rag --json search "topic"` to find relevant code units before reading files.
+2.  **Use Intent**: The `summary` field provides technical intent, allowing you to skip reading complex implementation details.
+
+### JSON Output Sample
+```json
+[
+  {
+    "id": "storage/duckdb_impl.py:DuckDBStorage",
+    "kind": "class",
+    "name": "DuckDBStorage",
+    "summary": "Handles vector persistence using DuckDB VSS extension and metadata storage.",
+    "path": "code_rag/storage/duckdb_impl.py"
+  }
+]
+```
+
+---
+
+## 🔧 Development
+
+### Running Tests
+```bash
+# Unit & Integration tests
+pytest tests/
+
+# End-to-End tests
+pytest e2e_tests/
+```
+
+### Code Quality (Linting)
+We use `prospector` for comprehensive code analysis:
+```bash
+prospector code_rag --with-tool mypy --with-tool bandit --with-tool vulture
+```
+
+---
 
 ## 📄 License
-MIT © Igor Boloban
+MIT © 2026 Igor Boloban
