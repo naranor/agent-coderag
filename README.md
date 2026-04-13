@@ -12,6 +12,7 @@
 ## 📖 Table of Contents
 - [🧠 The Problem: The API Knowledge Gap](#-the-problem-the-api-knowledge-gap)
 - [🚀 The Solution: Real-Time Contextual Truth](#-the-solution-real-time-contextual-truth)
+- [📊 CodeRAG vs Standard RAG](#-coderag-vs-standard-rag)
 - [🛠 How it Works](#-how-it-works)
 - [🏃 Quick Start](#-quick-start)
 - [🤖 For AI Agents](#-for-ai-agents)
@@ -40,6 +41,18 @@ CodeRAG acts as a lightweight semantic bridge between your local environment and
 *   **API Discovery**: Extracts *actual* signatures from your installed libraries.
 *   **Semantic Retrieval**: Provides the LLM with the exact **Intent** of your code units, indexed locally via ONNX.
 *   **Token Efficiency**: Instead of sending whole files, CodeRAG distills code into compact semantic summaries, **saving up to 80% of context window tokens**.
+
+---
+
+## 📊 CodeRAG vs Standard RAG
+
+| Feature | Standard RAG | **CodeRAG** |
+| :--- | :--- | :--- |
+| **Dependencies** | PyTorch, Transformers (~1GB) | **Tokenizers, ONNX (~50MB)** |
+| **Setup Time** | Minutes (downloads) | **Seconds (`code-rag setup`)** |
+| **Context Usage** | High (sends full files) | **Low (sends technical intent)** |
+| **API Freshness** | Outdated (training data) | **Real-time (local extraction)** |
+| **Speed** | Slow (Heavy runtime) | **Instant (Rust-based tokenization)** |
 
 ---
 
@@ -90,14 +103,14 @@ code-rag sync --all
 ```
 
 ### 5. Search
-*   **Human Mode (Compact)**:
-    ```bash
-    code-rag search "how to handle errors"
-    ```
-*   **Agent Mode (JSON)**:
-    ```bash
-    code-rag --json search "data storage" --limit 1
-    ```
+*   **Human Mode (Compact)**: `code-rag search "how to handle errors"`
+*   **Agent Mode (JSON)**: `code-rag --json search "data storage" --limit 1`
+
+### 🐳 Docker (Alternative)
+```bash
+docker build -t code-rag .
+docker run -v ~/.cache/code-rag:/root/.cache/code-rag code-rag setup
+```
 
 ---
 
@@ -109,36 +122,21 @@ CodeRAG is built specifically for programmatic consumption.
 1.  **Search First**: Use `code-rag --json search "topic"` to find relevant code units before reading files.
 2.  **Use Intent**: The `summary` field provides technical intent, allowing you to skip reading complex implementation details.
 
-### JSON Output Sample
-```json
-[
-  {
-    "id": "storage/duckdb_impl.py:DuckDBStorage",
-    "kind": "class",
-    "name": "DuckDBStorage",
-    "summary": "Handles vector persistence using DuckDB VSS extension and metadata storage.",
-    "path": "code_rag/storage/duckdb_impl.py"
-  }
-]
-```
-
 ---
 
 ## 🔧 Development
 
 ### Running Tests
 ```bash
-# Unit & Integration tests
 pytest tests/
-
-# End-to-End tests
 pytest e2e_tests/
 ```
 
-### Code Quality (Linting)
-We use `prospector` for comprehensive code analysis:
+### Pre-commit Hooks
+We use `pre-commit` to maintain high code standards:
 ```bash
-prospector code_rag --with-tool mypy --with-tool bandit --with-tool vulture
+pip install pre-commit
+pre-commit install
 ```
 
 ---
