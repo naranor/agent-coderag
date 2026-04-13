@@ -54,4 +54,4 @@ jobs:
         
     - name: Run Vulture dead code check
       run: |
-        vulture code_rag --min-confidence 80 --exclude code_rag/core/models.py,vulture_whitelist.py
+        vulture code_rag --min-confidence 80 --exclude code_rag/core/models.py
