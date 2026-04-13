@@ -1,0 +1,17 @@
+CodeRAG
+Copyright 2026 Igor Boloban
+
+This product includes software developed by the following third-party projects:
+
+- DuckDB (MIT License) - https://duckdb.org/
+- NumPy (BSD License) - https://numpy.org/
+- LiteLLM (MIT License) - https://litellm.ai/
+- ONNX Runtime (MIT License) - https://onnxruntime.ai/
+- Tokenizers (Apache License 2.0) - https://github.com/huggingface/tokenizers
+- Pydantic (MIT License) - https://github.com/pydantic/pydantic
+- HTTPX (BSD License) - https://github.com/encode/httpx
+- Aiofiles (Apache License 2.0) - https://github.com/Tinche/aiofiles
+- Sentence Transformers (Apache License 2.0) - https://www.sbert.net/
+
+This product also uses various other open-source libraries as listed in THIRD_PARTY_LICENSES.md.
+All trademarks are the property of their respective owners.

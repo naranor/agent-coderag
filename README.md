@@ -12,7 +12,6 @@
 ## 📖 Table of Contents
 - [🧠 The Problem: The API Knowledge Gap](#-the-problem-the-api-knowledge-gap)
 - [🚀 The Solution: Real-Time Contextual Truth](#-the-solution-real-time-contextual-truth)
-- [📊 CodeRAG vs Standard RAG](#-coderag-vs-standard-rag)
 - [🛠 How it Works](#-how-it-works)
 - [🏃 Quick Start](#-quick-start)
 - [🤖 For AI Agents](#-for-ai-agents)
@@ -41,18 +40,6 @@ CodeRAG acts as a lightweight semantic bridge between your local environment and
 *   **API Discovery**: Extracts *actual* signatures from your installed libraries.
 *   **Semantic Retrieval**: Provides the LLM with the exact **Intent** of your code units, indexed locally via ONNX.
 *   **Token Efficiency**: Instead of sending whole files, CodeRAG distills code into compact semantic summaries, **saving up to 80% of context window tokens**.
-
----
-
-## 📊 CodeRAG vs Standard RAG
-
-| Feature | Standard RAG | **CodeRAG** |
-| :--- | :--- | :--- |
-| **Dependencies** | PyTorch, Transformers (~1GB) | **Tokenizers, ONNX (~50MB)** |
-| **Setup Time** | Minutes (downloads) | **Seconds (`code-rag setup`)** |
-| **Context Usage** | High (sends full files) | **Low (sends technical intent)** |
-| **API Freshness** | Outdated (training data) | **Real-time (local extraction)** |
-| **Speed** | Slow (Heavy runtime) | **Instant (Rust-based tokenization)** |
 
 ---
 
@@ -158,3 +145,6 @@ prospector code_rag --with-tool mypy --with-tool bandit --with-tool vulture
 
 ## 📄 License
 MIT © 2026 Igor Boloban
+
+## 🙏 Acknowledgments
+This project stands on the shoulders of giants. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for a full list of open-source libraries used in CodeRAG.
