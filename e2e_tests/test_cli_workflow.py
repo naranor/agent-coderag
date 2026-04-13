@@ -102,4 +102,4 @@ def test_e2e_api_extraction():
     """Verify the API extraction command."""
     api_res = run_cli("api", "json")
     assert api_res.returncode == 0
-    assert "Public API for json" in api_res.stdout
+    assert "Public API for 'json'" in api_res.stdout

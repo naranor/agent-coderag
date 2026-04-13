@@ -1,36 +1,40 @@
-import ast
+import importlib
+import inspect
 import logging
-import importlib.util
-import os
-from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 async def extract_library_api(library_name: str) -> str:
     """
-    Finds the library path and parses its public members to create a summary.
-    This function is used by the 'api' CLI command.
+    Extracts the public API (classes, methods) of an installed library.
     """
-    spec = importlib.util.find_spec(library_name)
-    if not spec or not spec.origin:
-        return f"Library {library_name} not found."
+    try:
+        lib = importlib.import_module(library_name)
+        output = [f"# Public API for '{library_name}':"]
 
-    lib_path = Path(spec.origin).parent
-    output = [f"# Public API for {library_name} ({lib_path})"]
-    
-    # Simple top-level scan
-    for py_file in lib_path.glob("*.py"):
-        if py_file.name.startswith("_"):
-            continue
-        try:
-            with open(py_file, "r", encoding="utf-8") as f:
-                tree = ast.parse(f.read())
-            
-            for node in ast.iter_child_nodes(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    if not node.name.startswith("_"):
-                        output.append(f"- {node.name}")
-        except (OSError, SyntaxError) as e:
-            logger.debug("Failed to parse %s: %s", py_file, e)
+        # Simple introspection
+        for name, obj in inspect.getmembers(lib):
+            if name.startswith("_"): continue
 
-    return "\n".join(output)
+            if inspect.isclass(obj):
+                output.append(f"- **Class: {name}**")
+                # List methods
+                for m_name, m_obj in inspect.getmembers(obj):
+                    if m_name.startswith("_"): continue
+                    if inspect.isfunction(m_obj) or inspect.ismethod(m_obj):
+                        try:
+                            sig = inspect.signature(m_obj)
+                            output.append(f"  - `{m_name}{sig}`")
+                        except:
+                            output.append(f"  - `{m_name}(...)`")
+            elif inspect.isfunction(obj) or inspect.isbuiltin(obj):
+                try:
+                    sig = inspect.signature(obj)
+                    output.append(f"- **Function: {name}{sig}**")
+                except:
+                    output.append(f"- **Function: {name}(...)**")
+
+        return "\n".join(output[:100]) # Limit output length
+    except Exception as e:
+        return f"Failed to extract API for '{library_name}': {e}"

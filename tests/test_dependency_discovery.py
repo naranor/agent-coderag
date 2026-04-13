@@ -2,20 +2,38 @@ import pytest
 from code_rag.discovery.dependency import extract_library_api
 
 @pytest.mark.asyncio
-async def test_extract_library_api_json():
+async def test_extract_library_api_success():
     """
-    Verifies that extract_library_api correctly finds a library (json in this case).
+    Test extraction of public API for a standard library (math).
     """
-    # 'json' is a built-in library, should be findable
-    output = await extract_library_api("json")
-    assert "Public API for json" in output
-    # JSON library has Encoder/Decoder classes
-    assert "JSONEncoder" in output or "JSONDecoder" in output
+    result = await extract_library_api("math")
+
+    assert "Public API for 'math':" in result
+    assert "Function: cos" in result
+    assert "Function: sin" in result
+    # 'math' might not have classes in all Python versions, let's also check 'json'
+
+    result_json = await extract_library_api("json")
+    assert "Public API for 'json':" in result_json
+    assert "Function: dumps" in result_json
+    assert "Class: JSONEncoder" in result_json
 
 @pytest.mark.asyncio
-async def test_extract_library_api_not_found():
+async def test_extract_library_api_failure():
     """
-    Should return a graceful message for missing libraries.
+    Test extraction of public API for a non-existent library.
     """
-    output = await extract_library_api("non_existent_library_xyz_123")
-    assert "not found" in output
+    result = await extract_library_api("non_existent_library_name_12345")
+    assert "Failed to extract API for 'non_existent_library_name_12345':" in result
+
+@pytest.mark.asyncio
+async def test_extract_library_api_limit():
+    """
+    Verify that the output is limited to 100 lines.
+    """
+    # math has many functions, it might reach the limit if the library was very large
+    # but the current implementation limits to 100 lines/entries.
+    # Let's check a library with many members like 'os'
+    result = await extract_library_api("os")
+    lines = result.splitlines()
+    assert len(lines) <= 100
