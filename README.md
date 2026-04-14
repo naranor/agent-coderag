@@ -91,8 +91,10 @@ agent-coderag setup
 
 ### 3. Configure your LLM (For Distillation)
 ```bash
-agent-coderag config --url "http://your-proxy:8383/v1" --model "gpt-4o"
+agent-coderag config --url "https://api.openai.com/v1" --model "gpt-4o-mini" --key "sk-..."
 ```
+*We recommend using lightweight models like `gpt-4o-mini` or `gemini-1.5-flash` for cost-effective distillation.*
+
 
 ### 4. Index your Project
 ```bash
