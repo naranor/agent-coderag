@@ -6,8 +6,8 @@ Thank you for your interest in contributing to CodeRAG!
 
 ```bash
 # Clone the repository
-git clone https://github.com/naranor/code-rag
-cd code-rag
+git clone https://github.com/naranor/agent-coderag
+cd agent-coderag
 
 # Create virtual environment
 python -m venv venv

@@ -16,7 +16,7 @@ class DistillerConfig(BaseModel):
 
     @classmethod
     def load(cls) -> "DistillerConfig":
-        """Loads config from the global code-rag directory."""
+        """Loads config from the global agent-coderag directory."""
         config_path = get_global_dir() / "config.json"
         if config_path.exists():
             try:
@@ -28,7 +28,7 @@ class DistillerConfig(BaseModel):
         return cls()
 
     def save(self):
-        """Saves current config to the global code-rag directory."""
+        """Saves current config to the global agent-coderag directory."""
         config_path = get_global_dir() / "config.json"
         config_path.parent.mkdir(parents=True, exist_ok=True)
         try:

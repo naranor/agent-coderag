@@ -42,7 +42,7 @@ Issues = "https://github.com/naranor/agent-coderag/issues"
 Changelog = "https://github.com/naranor/agent-coderag/blob/main/CHANGELOG.md"
 
 [project.scripts]
-code-rag = "code_rag.entry.cli:main"
+agent-coderag = "code_rag.entry.cli:main"
 
 [tool.setuptools]
 package-data = {"*" = ["*.md"]}

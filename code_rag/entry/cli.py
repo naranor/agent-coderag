@@ -24,7 +24,7 @@ from ..discovery.dependency import extract_library_api
 
 # Setup basic logging - default to WARNING for clean output
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
-logger = logging.getLogger("code-rag-cli")
+logger = logging.getLogger("agent-coderag")
 
 def get_manager(db_path: str, onnx_path: Optional[str] = None, verbose: bool = False):
     """Initializes the RAG manager."""
@@ -157,7 +157,7 @@ async def rebuild_cmd(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="CodeRAG CLI Tool")
+    parser = argparse.ArgumentParser(description="Agent-CodeRAG CLI Tool")
     parser.add_argument("--db", default=".code_rag.db", help="Path to DuckDB database")
     parser.add_argument("--onnx", help="Path to ONNX embedding model")
     parser.add_argument("--verbose", action="store_true", help="Show debug logs")

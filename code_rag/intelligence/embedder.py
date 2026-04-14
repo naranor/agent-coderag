@@ -9,13 +9,13 @@ from tokenizers import Tokenizer
 logger = logging.getLogger(__name__)
 
 def get_global_dir() -> Path:
-    """Returns the default global directory for code-rag data (cross-platform)."""
+    """Returns the default global directory for agent-coderag data (cross-platform)."""
     if os.name == 'nt': # Windows
         base_dir = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local'))
     else: # Linux/macOS
         base_dir = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache'))
     
-    return base_dir / "code-rag"
+    return base_dir / "agent-coderag"
 
 def get_default_model_dir() -> Path:
     """Returns the default global directory for models."""
@@ -38,7 +38,7 @@ class Embedder:
                 self.model_path = str(potential_path)
                 logger.info("Using global model from %s", self.model_path)
             else:
-                logger.warning("No model found at %s. Please run 'code-rag setup'.", potential_path)
+                logger.warning("No model found at %s. Please run 'agent-coderag setup'.", potential_path)
         
         if self.model_path and os.path.exists(self.model_path):
             self._init_tokenizer()

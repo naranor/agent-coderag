@@ -70,7 +70,7 @@ graph TD
 ## 📡 API Discovery
 To help your agent understand a specific library version installed in your environment:
 ```bash
-code-rag api pydantic
+agent-coderag api pydantic
 ```
 Returns the *live* public API, methods, and signatures.
 
@@ -86,27 +86,27 @@ pip install agent-coderag
 ### 2. Setup AI Models
 Download the lightweight `paraphrase-multilingual-MiniLM` ONNX model to your global cache:
 ```bash
-code-rag setup
+agent-coderag setup
 ```
 
 ### 3. Configure your LLM (For Distillation)
 ```bash
-code-rag config --url "http://your-proxy:8383/v1" --model "gpt-4o"
+agent-coderag config --url "http://your-proxy:8383/v1" --model "gpt-4o"
 ```
 
 ### 4. Index your Project
 ```bash
-code-rag sync --all
+agent-coderag sync --all
 ```
 
 ### 5. Search
-*   **Human Mode (Compact)**: `code-rag search "how to handle errors"`
-*   **Agent Mode (JSON)**: `code-rag --json search "data storage" --limit 1`
+*   **Human Mode (Compact)**: `agent-coderag search "how to handle errors"`
+*   **Agent Mode (JSON)**: `agent-coderag --json search "data storage" --limit 1`
 
 ### 🐳 Docker (Alternative)
 ```bash
 docker build -t agent-coderag .
-docker run -v ~/.cache/code-rag:/root/.cache/code-rag agent-coderag setup
+docker run -v ~/.cache/agent-coderag:/root/.cache/agent-coderag agent-coderag setup
 ```
 
 ---
@@ -116,7 +116,7 @@ docker run -v ~/.cache/code-rag:/root/.cache/code-rag agent-coderag setup
 Agent-CodeRAG is built specifically for programmatic consumption.
 
 ### Agent Strategy
-1.  **Search First**: Use `code-rag --json search "topic"` to find relevant code units before reading files.
+1.  **Search First**: Use `agent-coderag --json search "topic"` to find relevant code units before reading files.
 2.  **Use Intent**: The `summary` field provides technical intent, allowing you to skip reading complex implementation details.
 
 ---

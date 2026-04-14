@@ -15,8 +15,8 @@ COPY . .
 RUN pip install --no-cache-dir .
 
 # Create a volume for global cache (models and config)
-VOLUME /root/.cache/code-rag
+VOLUME /root/.cache/agent-coderag
 
 # Default command
-ENTRYPOINT ["code-rag"]
+ENTRYPOINT ["agent-coderag"]
 CMD ["--help"]
