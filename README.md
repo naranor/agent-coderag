@@ -90,10 +90,17 @@ agent-coderag setup
 ```
 
 ### 3. Configure your LLM (For Distillation)
+
+**Option A: Cloud (OpenAI)**
 ```bash
 agent-coderag config --url "https://api.openai.com/v1" --model "gpt-4o-mini" --key "sk-..."
 ```
-*We recommend using lightweight models like `gpt-4o-mini` or `gemini-1.5-flash` for cost-effective distillation.*
+
+**Option B: Local (Ollama) - Recommended**
+```bash
+agent-coderag config --url "http://localhost:11434" --provider "ollama" --model "qwen2.5-coder:7b"
+```
+*We recommend using `qwen2.5-coder` or `llama3.2` for fast and private local distillation.*
 
 
 ### 4. Index your Project
