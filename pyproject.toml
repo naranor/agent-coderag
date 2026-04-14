@@ -10,9 +10,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-    { name = "Igor Boloban <naranor@gmail.com>" }
+    { name = "Igor Boloban", email = "naranor@gmail.com" }
 ]
-keywords = ["python", "rag", "ai-agents", "semantic-search", "code-analysis", "context-compression", "onnx", "local-embeddings"]
+keywords = ["rag", "ai-agents", "semantic-search", "code-analysis", "context-compression", "onnx", "local-embeddings"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -39,9 +39,13 @@ dependencies = [
 Homepage = "https://github.com/naranor/code-rag"
 Repository = "https://github.com/naranor/code-rag"
 Issues = "https://github.com/naranor/code-rag/issues"
+Changelog = "https://github.com/naranor/code-rag/blob/main/CHANGELOG.md"
 
 [project.scripts]
 code-rag = "code_rag.entry.cli:main"
+
+[tool.setuptools]
+package-data = {"*" = ["*.md"]}
 
 [tool.setuptools.packages.find]
 include = ["code_rag*"]
