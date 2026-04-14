@@ -1,4 +1,4 @@
-# CodeRAG: Semantic Intelligence for AI Coding Agents
+# Agent-CodeRAG: Semantic Intelligence for AI Coding Agents
 
 > **Fast. Local. Agent-First. Token-Efficient.**
 
@@ -36,11 +36,11 @@ AI coding agents often hallucinate when calling library APIs because their train
 
 ## 🚀 The Solution: Real-Time Contextual Truth
 
-CodeRAG acts as a lightweight semantic bridge between your local environment and the LLM. 
+Agent-CodeRAG acts as a lightweight semantic bridge between your local environment and the LLM. 
 
 *   **API Discovery**: Extracts *actual* signatures from your installed libraries.
 *   **Semantic Retrieval**: Provides the LLM with the exact **Intent** of your code units, indexed locally via ONNX.
-*   **Token Efficiency**: Instead of sending whole files, CodeRAG distills code into compact semantic summaries, **saving up to 80% of context window tokens**.
+*   **Token Efficiency**: Instead of sending whole files, Agent-CodeRAG distills code into compact semantic summaries, **saving up to 80% of context window tokens**.
 
 ---
 
@@ -49,7 +49,7 @@ CodeRAG acts as a lightweight semantic bridge between your local environment and
 ```mermaid
 graph TD
     A[Local Python Code] --> B[AST Parser]
-    B --> C{Delta-Distillation}
+    B --> C{Delta-Sync}
     C -- Changed/New --> D[LLM Distiller]
     C -- Unchanged --> E[Local Cache]
     D --> F[Semantic Summary]
@@ -80,7 +80,7 @@ Returns the *live* public API, methods, and signatures.
 
 ### 1. Install
 ```bash
-pip install .
+pip install agent-coderag
 ```
 
 ### 2. Setup AI Models
@@ -105,15 +105,15 @@ code-rag sync --all
 
 ### 🐳 Docker (Alternative)
 ```bash
-docker build -t code-rag .
-docker run -v ~/.cache/code-rag:/root/.cache/code-rag code-rag setup
+docker build -t agent-coderag .
+docker run -v ~/.cache/code-rag:/root/.cache/code-rag agent-coderag setup
 ```
 
 ---
 
 ## 🤖 For AI Agents
 
-CodeRAG is built specifically for programmatic consumption.
+Agent-CodeRAG is built specifically for programmatic consumption.
 
 ### Agent Strategy
 1.  **Search First**: Use `code-rag --json search "topic"` to find relevant code units before reading files.
@@ -142,4 +142,4 @@ pre-commit install
 MIT © 2026 Igor Boloban
 
 ## 🙏 Acknowledgments
-This project stands on the shoulders of giants. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for a full list of open-source libraries used in CodeRAG.
+This project stands on the shoulders of giants. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for a full list of open-source libraries used in Agent-CodeRAG.

@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "code-rag"
+name = "agent-coderag"
 version = "0.1.0"
 description = "Lightweight semantic code search and distillation utility for AI coding agents. It solves the API knowledge gap via real-time local signature extraction and intent analysis without PyTorch. Optimized for token efficiency, it compresses codebase context into compact semantic summaries stored in a local DuckDB vector similarity index."
 readme = "README.md"
@@ -36,10 +36,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/naranor/code-rag"
-Repository = "https://github.com/naranor/code-rag"
-Issues = "https://github.com/naranor/code-rag/issues"
-Changelog = "https://github.com/naranor/code-rag/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/naranor/agent-coderag"
+Repository = "https://github.com/naranor/agent-coderag"
+Issues = "https://github.com/naranor/agent-coderag/issues"
+Changelog = "https://github.com/naranor/agent-coderag/blob/main/CHANGELOG.md"
 
 [project.scripts]
 code-rag = "code_rag.entry.cli:main"
