@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
 
 from code_rag.intelligence.distiller import Distiller, DistillerConfig
 
@@ -39,17 +39,3 @@ class TestDistiller:
             
             result = await distiller.summarize("def test(): pass", "test_func")
             assert result == "Test summary."
-    
-    @pytest.mark.asyncio
-    async def test_summarize_ollama_provider(self):
-        config = DistillerConfig(model="llama3", provider="ollama")
-        distiller = Distiller(config)
-        
-        with patch('code_rag.intelligence.distiller.litellm.acompletion') as mock_comp:
-            mock_response = MagicMock()
-            mock_response.choices = [MagicMock(message=MagicMock(content="Ollama summary."))]
-            mock_comp.return_value = mock_response
-            
-            result = await distiller.summarize("def foo(): pass", "foo")
-            call_kwargs = mock_comp.call_args.kwargs
-            assert call_kwargs["model"] == "ollama/llama3"

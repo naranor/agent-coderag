@@ -1,14 +1,12 @@
 import pytest
 import numpy as np
 import os
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, patch
 
 from code_rag.intelligence.embedder import Embedder, get_default_model_dir, get_global_dir
 
 
 class TestEmbedder:
-    """Tests for Embedder class."""
-    
     def test_embedder_init_no_path(self):
         embedder = Embedder(model_path=None)
         assert embedder.model_path is None
