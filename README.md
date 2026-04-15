@@ -1,50 +1,86 @@
-# Agent-CodeRAG: Semantic Intelligence for AI Coding Agents
+# Agent-CodeRAG
 
-> **Fast. Local. Agent-First. Token-Efficient.**
+<p align="center">
+  <img src="https://raw.githubusercontent.com/naranor/agent-coderag/main/assets/banner.svg" alt="Agent-CodeRAG Banner" width="400">
+</p>
+
+> **Fast. Local. Agent-First. Token-Efficient.** Bridge the gap between AI coding agents and your local environment.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![No PyTorch](https://img.shields.io/badge/Footprint-No_PyTorch-green.svg)](#-key-technologies)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![PyPI Version](https://img.shields.io/pypi/v/agent-coderag.svg)](https://pypi.org/project/agent-coderag/)
+[![Downloads](https://img.shields.io/pypi/dm/agent-coderag.svg)](https://pypi.org/project/agent-coderag/)
 
 ---
 
-## 📖 Table of Contents
-- [🧠 The Problem: The API Knowledge Gap](#-the-problem-the-api-knowledge-gap)
-- [🚀 The Solution: Real-Time Contextual Truth](#-the-solution-real-time-contextual-truth)
-- [🛠 How it Works](#-how-it-works)
-- [📡 API Discovery](#-api-discovery)
-- [🏃 Quick Start](#-quick-start)
-- [🤖 For AI Agents](#-for-ai-agents)
-- [🔧 Development](#-development)
-- [📄 License](#-license)
+## Table of Contents
+
+- [Why Agent-CodeRAG?](#why-agent-coderag)
+- [Quick Start](#quick-start)
+- [Features](#-features)
+- [How It Works](#-how-it-works)
+- [API Discovery](#-api-discovery)
+- [For AI Agents](#-for-ai-agents)
+- [Development](#-development)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ---
 
-## 🧠 The Problem: The API Knowledge Gap
+## Why Agent-CodeRAG?
 
-AI coding agents often hallucinate when calling library APIs because their training data is static. This leads to a **"Fail-Fix-Fail" cycle**:
+AI coding agents often **hallucinate** when calling library APIs because their training data is static. This leads to a **"Fail-Fix-Fail" cycle** — broken code, token waste, and frustration.
 
-1.  **Broken Code**: Agents use deprecated parameters or non-existent methods from outdated versions.
-2.  **Token Waste**: You provide the error, the agent tries to fix it using more outdated data, consuming thousands of tokens in a loop.
-3.  **Environment Mismatch**: The agent knows the API for version 1.0, but your environment has 2.0.
+**The Problem:** Your agent knows Pydantic v1 (`model.dict()`), but your environment uses v2 (`model.model_dump()`). Result: 5000+ wasted tokens trying to "fix" something it doesn't understand.
 
-### Real-world Example (The Pydantic Gap)
-*   **Agent's Knowledge**: Knows Pydantic v1 (`model.dict()`).
-*   **Your Environment**: Uses Pydantic v2 (`model.model_dump()`).
-*   **The Result**: The agent writes `dict()`, the code fails, and it wastes **5000+ tokens** trying to "fix" a problem it doesn't understand.
+**The Solution:** Agent-CodeRAG extracts *actual* API signatures from your installed libraries and provides the LLM with real-time, environment-specific context — saving up to **80% of context window tokens**.
 
-## 🚀 The Solution: Real-Time Contextual Truth
-
-Agent-CodeRAG acts as a lightweight semantic bridge between your local environment and the LLM. 
-
-*   **API Discovery**: Extracts *actual* signatures from your installed libraries.
-*   **Semantic Retrieval**: Provides the LLM with the exact **Intent** of your code units, indexed locally via ONNX.
-*   **Token Efficiency**: Instead of sending whole files, Agent-CodeRAG distills code into compact semantic summaries, **saving up to 80% of context window tokens**.
+[🔝 Back to top](#table-of-contents)
 
 ---
 
-## 🛠 How it Works
+## Quick Start
+
+```bash
+# 1. Install
+pip install agent-coderag
+
+# 2. Setup (download ONNX model)
+agent-coderag setup
+
+# 3. Configure LLM (optional, for AI distillation)
+agent-coderag config --url "http://localhost:11434" --provider "ollama" --model "qwen2.5-coder:7b"
+
+# 4. Index your project
+agent-coderag sync --all
+
+# 5. Search
+agent-coderag search "how to handle errors"
+```
+
+**Docker:**
+```bash
+docker build -t agent-coderag .
+docker run -v ~/.cache/agent-coderag:/root/.cache/agent-coderag agent-coderag setup
+```
+
+[🔝 Back to top](#table-of-contents)
+
+---
+
+## ✨ Features
+
+- **⚡ No PyTorch** — Uses `onnxruntime` and `tokenizers` (Rust) for instant startup
+- **💾 DuckDB VSS** — High-performance vector search in a single local file
+- **🔄 Delta-Sync** — SHA-256 hashing re-distills only changed code
+- **🔌 Hybrid Intelligence** — Works offline; adds AI-distilled reasoning when LLM is connected
+- **📡 API Discovery** — Extract live API signatures from your installed libraries
+
+[🔝 Back to top](#table-of-contents)
+
+---
+
+## 🛠 How It Works
 
 ```mermaid
 graph TD
@@ -59,96 +95,74 @@ graph TD
     H --> I[Semantic Search / JSON API]
 ```
 
-### ✨ Key Features
-*   **⚡ No PyTorch**: Uses `onnxruntime` and `tokenizers` (Rust) for a tiny footprint and instant startup.
-*   **💾 DuckDB VSS**: High-performance vector similarity search stored in a single local file.
-*   **🔄 Delta-Sync**: Uses SHA-256 hashing to only re-distill changed code, saving your API budget.
-*   **🔌 Hybrid Intelligence**: Works offline using name-based embeddings; adds AI-distilled reasoning when an LLM is connected.
+1. **AST Parser** — Parses your Python code
+2. **Delta-Sync** — Uses SHA-256 to detect changes
+3. **LLM Distiller** — Generates semantic summaries (optional)
+4. **ONNX Embedder** — Creates embeddings locally
+5. **DuckDB VSS** — Stores vectors for fast similarity search
+
+[🔝 Back to top](#table-of-contents)
 
 ---
 
 ## 📡 API Discovery
-To help your agent understand a specific library version installed in your environment:
+
 ```bash
 agent-coderag api pydantic
 ```
-Returns the *live* public API, methods, and signatures.
 
----
+Returns the *live* public API, methods, and signatures for any installed library.
 
-## 🏃 Quick Start
-
-### 1. Install
-```bash
-pip install agent-coderag
-```
-
-### 2. Setup AI Models
-Download the lightweight `paraphrase-multilingual-MiniLM` ONNX model to your global cache:
-```bash
-agent-coderag setup
-```
-
-### 3. Configure your LLM (For Distillation)
-
-**Option A: Cloud (OpenAI)**
-```bash
-agent-coderag config --url "https://api.openai.com/v1" --model "gpt-4o-mini" --key "sk-..."
-```
-
-**Option B: Local (Ollama) - Recommended**
-```bash
-agent-coderag config --url "http://localhost:11434" --provider "ollama" --model "qwen2.5-coder:7b"
-```
-*We recommend using `qwen2.5-coder` or `llama3.2` for fast and private local distillation.*
-
-
-### 4. Index your Project
-```bash
-agent-coderag sync --all
-```
-
-### 5. Search
-*   **Human Mode (Compact)**: `agent-coderag search "how to handle errors"`
-*   **Agent Mode (JSON)**: `agent-coderag --json search "data storage" --limit 1`
-
-### 🐳 Docker (Alternative)
-```bash
-docker build -t agent-coderag .
-docker run -v ~/.cache/agent-coderag:/root/.cache/agent-coderag agent-coderag setup
-```
+[🔝 Back to top](#table-of-contents)
 
 ---
 
 ## 🤖 For AI Agents
 
-Agent-CodeRAG is built specifically for programmatic consumption.
+Agent-CodeRAG is built for programmatic consumption:
 
-### Agent Strategy
-1.  **Search First**: Use `agent-coderag --json search "topic"` to find relevant code units before reading files.
-2.  **Use Intent**: The `summary` field provides technical intent, allowing you to skip reading complex implementation details.
+1. **Search First**: `agent-coderag --json search "topic" --limit 1`
+2. **Use Intent**: The `summary` field provides technical intent — skip reading unnecessary files
+
+[🔝 Back to top](#table-of-contents)
 
 ---
 
 ## 🔧 Development
 
-### Running Tests
 ```bash
+# Run tests
 pytest tests/
 pytest e2e_tests/
-```
 
-### Pre-commit Hooks
-We use `pre-commit` to maintain high code standards:
-```bash
+# Setup pre-commit hooks
 pip install pre-commit
 pre-commit install
 ```
 
+[🔝 Back to top](#table-of-contents)
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Here's how to get started:
+
+1. **Fork** the repository
+2. **Clone** your fork: `git clone https://github.com/YOUR_USERNAME/agent-coderag.git`
+3. **Create a branch**: `git checkout -b feature/your-feature`
+4. **Make changes** and commit with [Conventional Commits](https://www.conventionalcommits.org/)
+5. **Run tests**: `pytest tests/`
+6. **Push** to your fork and create a **Pull Request**
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
+[🔝 Back to top](#table-of-contents)
+
 ---
 
 ## 📄 License
-MIT © 2026 Igor Boloban
 
-## 🙏 Acknowledgments
-This project stands on the shoulders of giants. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for a full list of open-source libraries used in Agent-CodeRAG.
+MIT © 2026 [Igor Boloban](https://github.com/naranor)
+
+[🔝 Back to top](#table-of-contents)
