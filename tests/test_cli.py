@@ -24,10 +24,13 @@ class TestCLIHelpers:
         path = Path("test.txt")
         assert cli.should_index(path) is False
     
-    @pytest.mark.skip(reason="Platform-specific - depends on path separators")
     def test_should_index_excluded_paths(self):
         """Test should_index excludes certain paths."""
-        pass
+        from pathlib import Path
+        assert cli.should_index(Path("tests/test.py")) is False
+        assert cli.should_index(Path("venv/lib.py")) is False
+        assert cli.should_index(Path("__pycache__/test.py")) is False
+        assert cli.should_index(Path(".git/config.py")) is False
     
     @patch('code_rag.entry.cli.DistillerConfig')
     @patch('code_rag.entry.cli.Embedder')
