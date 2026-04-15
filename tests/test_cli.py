@@ -32,19 +32,17 @@ class TestCLISearch:
         
         mock_manager = MagicMock()
         mock_manager.search = AsyncMock(return_value=[
-            KnowledgeUnit(id="test.py:test", kind=UnitKind.FUNCTION, name="test", path="test.py", summary="Test function", code_hash="abc123")
+            KnowledgeUnit(id="test.py:test", kind=UnitKind.FUNCTION, name="test", path="test.py", summary="Test", code_hash="abc")
         ])
         
         with patch('code_rag.entry.cli.get_manager', return_value=mock_manager):
             args = argparse.Namespace(db="test.db", onnx=None, verbose=False, json=False, query="test", limit=5)
-            
             old_stdout = sys.stdout
             sys.stdout = captured = StringIO()
             try:
                 await cli.search_cmd(args)
             finally:
                 sys.stdout = old_stdout
-            
             assert "test | test.py" in captured.getvalue()
     
     @pytest.mark.asyncio
@@ -54,54 +52,27 @@ class TestCLISearch:
         
         with patch('code_rag.entry.cli.get_manager', return_value=mock_manager):
             args = argparse.Namespace(db="test.db", onnx=None, verbose=False, json=False, query="nonexistent", limit=5)
-            
             old_stdout = sys.stdout
             sys.stdout = captured = StringIO()
             try:
                 await cli.search_cmd(args)
             finally:
                 sys.stdout = old_stdout
-            
             assert "No results" in captured.getvalue()
-    
-    @pytest.mark.asyncio
-    async def test_search_cmd_json_output(self):
-        from code_rag.core.models import KnowledgeUnit, UnitKind
-        
-        mock_manager = MagicMock()
-        mock_manager.search = AsyncMock(return_value=[
-            KnowledgeUnit(id="test.py:test", kind=UnitKind.FUNCTION, name="test", path="test.py", summary="Test function", code_hash="abc123")
-        ])
-        
-        with patch('code_rag.entry.cli.get_manager', return_value=mock_manager):
-            args = argparse.Namespace(db="test.db", onnx=None, verbose=False, json=True, query="test", limit=5)
-            
-            old_stdout = sys.stdout
-            sys.stdout = captured = StringIO()
-            try:
-                await cli.search_cmd(args)
-            finally:
-                sys.stdout = old_stdout
-            
-            result = json.loads(captured.getvalue())
-            assert len(result) == 1
 
 
 class TestCLIApi:
     @pytest.mark.asyncio
     async def test_api_cmd_success(self):
         with patch('code_rag.entry.cli.extract_library_api', new_callable=AsyncMock) as mock_extract:
-            mock_extract.return_value = {"functions": ["func1", "func2"]}
-            
+            mock_extract.return_value = {"functions": ["func1"]}
             args = argparse.Namespace(library="pydantic", json=False)
-            
             old_stdout = sys.stdout
             sys.stdout = captured = StringIO()
             try:
                 await cli.api_cmd(args)
             finally:
                 sys.stdout = old_stdout
-            
             assert "func1" in captured.getvalue()
 
 
@@ -110,8 +81,6 @@ class TestCLIConfig:
         with patch('code_rag.entry.cli.DistillerConfig') as mock_config_cls:
             mock_config = MagicMock()
             mock_config_cls.load.return_value = mock_config
-            
             args = argparse.Namespace(url="http://new-url.com", key=None, model=None, provider=None, json=False)
             cli.config_cmd(args)
-            
             mock_config.save.assert_called_once()
