@@ -1,0 +1,9 @@
+{
+  "files_indexed": 16,
+  "total_code_tokens": 2359,
+  "estimated_summary_tokens": 353.84999999999997,
+  "compression_ratio": 0.85,
+  "retrieval_precision": 0.46,
+  "tokens_per_query_summary": 60,
+  "tokens_per_query_full": 1200
+}

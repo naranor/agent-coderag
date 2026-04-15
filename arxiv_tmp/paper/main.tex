@@ -161,7 +161,7 @@ Table~\ref{tab:results} shows retrieval precision and token usage.
     \end{tabular}
 \end{table}
 
-Agent-CodeRAG achieves comparable precision to Full Context while using 5\% of tokens. Notably, it reduces token usage by 95\% compared to full file inclusion, and the delta-sync mechanism reduces distillation API costs by 92\% on average across incremental updates.
+Agent-CodeRAG reduces token usage by 95\% compared to full file inclusion while maintaining 96\% of the precision (0.46 vs. 0.48). The delta-sync mechanism reduces distillation API costs by 92\% on average across incremental updates.
 
 \subsection{Token Savings in Practice}
 
@@ -183,14 +183,6 @@ Our system has several limitations:
 \label{sec:conclusion}
 
 We presented Agent-CodeRAG, a lightweight system that bridges AI coding agents with local environments by providing accurate, real-time API knowledge. Our approach combines AST-based API extraction, LLM-powered semantic distillation, and local vector search to achieve high retrieval accuracy with minimal token usage. Evaluations show a 95\% token reduction compared to full context inclusion. Future work includes supporting multiple programming languages and integrating runtime introspection.
-
-\subsection*{Acknowledgments}
-
-This work was supported by the OpenClaw research initiative. The code is open-source and available at \url{https://github.com/naranor/agent-coderag} under the MIT license. Experiments were conducted on the CodeSearchNet benchmark; data and scripts are included in the supplementary material.
-
-\subsection*{Conflict of Interest}
-
-The authors declare no conflict of interest.
 
 \bibliographystyle{plain}
 \begin{thebibliography}{10}

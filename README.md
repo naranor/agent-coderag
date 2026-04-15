@@ -131,6 +131,19 @@ Agent-CodeRAG is built for programmatic consumption:
 
 ---
 
+## 📄 Research Paper
+
+This project is the subject of an academic paper currently under preparation for arXiv.
+
+See [paper/](paper/) directory for LaTeX source.
+
+**Key contributions:**
+- Novel approach to bridging the API knowledge gap for AI agents
+- Efficient local semantic indexing with ONNX + DuckDB VSS
+- Token-efficient context compression (up to 80% savings)
+
+---
+
 ## 🔧 Development
 
 ```bash
