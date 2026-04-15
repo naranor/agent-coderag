@@ -23,6 +23,7 @@
 - [How It Works](#-how-it-works)
 - [API Discovery](#-api-discovery)
 - [For AI Agents](#-for-ai-agents)
+- [Research Paper](#-research-paper)
 - [Development](#-development)
 - [Contributing](#-contributing)
 - [License](#-license)
