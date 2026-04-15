@@ -10,6 +10,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![PyPI Version](https://img.shields.io/pypi/v/agent-coderag.svg)](https://pypi.org/project/agent-coderag/)
 [![Downloads](https://img.shields.io/pypi/dm/agent-coderag.svg)](https://pypi.org/project/agent-coderag/)
+[![Tests](https://github.com/naranor/agent-coderag/actions/workflows/ci.yml/badge.svg)](https://github.com/naranor/agent-coderag/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-81%25-green)](https://github.com/naranor/agent-coderag/actions)
 
 ---
 
