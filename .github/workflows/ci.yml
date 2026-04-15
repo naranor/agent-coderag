@@ -33,7 +33,7 @@ jobs:
         
     - name: Run unit tests with coverage
       run: |
-        pytest tests/ --cov=code_rag --cov-report=term-missing
+        pytest tests/ --cov=code_rag --cov-report=term-missing --cov-report=xml
 
   lint:
     runs-on: ubuntu-latest
