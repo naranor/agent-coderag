@@ -46,12 +46,12 @@ def get_manager(db_path: str, onnx_path: Optional[str] = None, verbose: bool = F
 
 def should_index(path: Path) -> bool:
     """Filters files that should NOT be indexed."""
-    p_str = str(path)
-    exclude_patterns = ["tests/", "venv/", "__pycache__/", ".git/"]
+    p_str = str(path).replace(chr(92), '/')  # Normalize Windows backslashes
+    exclude_patterns = ['tests/', 'venv/', '__pycache__/', '.git/']
     for pattern in exclude_patterns:
         if pattern in p_str:
             return False
-    return path.suffix == ".py"
+    return path.suffix == '.py'
 
 async def sync_cmd(args):
     manager = get_manager(args.db, args.onnx, args.verbose)

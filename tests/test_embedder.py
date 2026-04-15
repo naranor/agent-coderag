@@ -1,6 +1,8 @@
 import pytest
 import numpy as np
 import os
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from code_rag.intelligence.embedder import Embedder, get_default_model_dir, get_global_dir
@@ -29,15 +31,24 @@ class TestEmbedder:
         result = embedder.embed(["single text"])
         assert result.shape == (1, 384)
     
-    @pytest.mark.skip(reason="Platform-specific - relies on environment variables")
+    @pytest.mark.skipif(sys.platform == 'win32', reason='Linux-specific path handling')
     def test_get_global_dir_posix_default(self):
-        """Test global directory on POSIX."""
-        pass
+        """Test global directory on POSIX without XDG."""
+        with patch('code_rag.intelligence.embedder.os.name', 'posix'):
+            with patch.dict(os.environ, {}, clear=True):
+                # Path.home() may not be available in test environment
+                with patch('pathlib.Path.home', return_value=Path('/home/test')):
+                    result = get_global_dir()
+                    assert 'agent-coderag' in str(result)
     
-    @pytest.mark.skip(reason="Platform-specific - relies on environment variables")
+    @pytest.mark.skipif(sys.platform == 'win32', reason='Linux-specific path handling')
     def test_get_global_dir_xdg(self):
         """Test global directory with XDG_CACHE_HOME."""
-        pass
+        with patch('code_rag.intelligence.embedder.os.name', 'posix'):
+            with patch.dict(os.environ, {'XDG_CACHE_HOME': '/test/xdg'}):
+                with patch('pathlib.Path.home', return_value=Path('/home/test')):
+                    result = get_global_dir()
+                    assert '/test/xdg' in str(result)
     
     def test_get_default_model_dir(self):
         result = get_default_model_dir()
