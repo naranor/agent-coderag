@@ -33,6 +33,7 @@ dependencies = [
     "pydantic",
     "httpx",
     "aiofiles",
+    "javalang",
 ]
 
 [project.urls]

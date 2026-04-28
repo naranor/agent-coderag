@@ -33,7 +33,7 @@ class TestCLIHelpers:
     @patch('code_rag.entry.cli.DistillerConfig')
     @patch('code_rag.entry.cli.Embedder')
     @patch('code_rag.entry.cli.DuckDBStorage')
-    @patch('code_rag.entry.cli.AstIndexParser')
+    @patch('code_rag.entry.cli.MultiParser')
     @patch('code_rag.entry.cli.Distiller')
     def test_get_manager_init(self, mock_distiller, mock_parser, mock_storage, mock_embedder, mock_config):
         """Test get_manager initialization."""
