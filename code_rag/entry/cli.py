@@ -17,7 +17,7 @@ logging.getLogger("onnxruntime").setLevel(logging.ERROR)
 # pylint: disable=wrong-import-position
 from ..core.manager import CodeRAGManager  # noqa: E402
 from ..storage.duckdb_impl import DuckDBStorage  # noqa: E402
-from ..parsers.ast_index import AstIndexParser  # noqa: E402
+from ..parsers.multi_parser import MultiParser  # noqa: E402
 from ..intelligence.embedder import Embedder, get_default_model_dir  # noqa: E402
 from ..intelligence.distiller import Distiller, DistillerConfig  # noqa: E402
 from ..discovery.dependency import extract_library_api  # noqa: E402
@@ -40,7 +40,7 @@ def get_manager(db_path: str, onnx_path: Optional[str] = None, verbose: bool = F
     
     embedder = Embedder(model_path=onnx_path)
     storage = DuckDBStorage(db_path, embedder=embedder)
-    parser = AstIndexParser()
+    parser = MultiParser()
     distiller = Distiller(config)
     
     return CodeRAGManager(storage, parser, distiller)
@@ -64,7 +64,7 @@ def should_index(path: Path, ignore_patterns: Optional[List[str]] = None) -> boo
     """Filters files that should NOT be indexed."""
     # 1. Default hardcoded exclusions
     parts = set(path.parts)
-    exclude_dirs = {'tests', 'venv', '__pycache__', '.git', '.pytest_cache', 'dist', 'build'}
+    exclude_dirs = {'tests', 'venv', '__pycache__', '.git', '.pytest_cache', 'dist', 'build', 'node_modules'}
     if any(ex in parts for ex in exclude_dirs):
         return False
     
@@ -76,23 +76,31 @@ def should_index(path: Path, ignore_patterns: Optional[List[str]] = None) -> boo
             if fnmatch.fnmatch(p_str, pattern) or fnmatch.fnmatch(p_str, f"*/{pattern}"):
                 return False
 
-    return path.suffix == '.py'
+    return path.suffix in {'.py', '.java'}
 
 async def sync_cmd(args):
     manager = get_manager(args.db, args.onnx, args.verbose)
     ignore_patterns = load_ignore_patterns()
+    
+    extensions = ("*.py", "*.java")
     
     if args.path:
         target_path = Path(args.path)
         if target_path.is_file():
             await manager.sync_file(str(target_path), force_distill=args.force)
         else:
-            paths = [str(p) for p in target_path.rglob("*.py") if should_index(p, ignore_patterns)]
+            paths = []
+            for ext in extensions:
+                paths.extend([str(p) for p in target_path.rglob(ext) if should_index(p, ignore_patterns)])
+            
             if args.verbose:
                 logger.info("Indexing %d files...", len(paths))
             await manager.sync_project(paths, force_distill=args.force)
     elif args.all:
-        paths = [str(p) for p in Path(".").rglob("*.py") if should_index(p, ignore_patterns)]
+        paths = []
+        for ext in extensions:
+            paths.extend([str(p) for p in Path(".").rglob(ext) if should_index(p, ignore_patterns)])
+            
         if args.verbose:
             logger.info("Indexing %d files...", len(paths))
         await manager.sync_project(paths, force_distill=args.force)

@@ -45,10 +45,10 @@ class TestIStorage:
         class MockStorage(IStorage):
             async def upsert_unit(self, unit: KnowledgeUnit):
                 pass
-            
+
             async def get_unit(self, unit_id: str):
                 return None
-            
+
             async def search_units(self, query: str, limit: int = 5):
                 return []
 
@@ -57,9 +57,10 @@ class TestIStorage:
 
             async def get_relations(self, unit_id: str, direction: str = "out"):
                 return []
-        
+
         storage = MockStorage()
-        assert storage is not None
+        assert isinstance(storage, IStorage)
+
 
 
 class TestIIntelligence:

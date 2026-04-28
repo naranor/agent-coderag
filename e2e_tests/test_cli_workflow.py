@@ -12,12 +12,15 @@ E2E_TMP = PROJECT_ROOT / "e2e_tests" / "tmp_workspace"
 DB_PATH = PROJECT_ROOT / "e2e_tests" / "e2e_test.db"
 
 def run_cli(*args):
-    """Helper to run the CLI tool."""
+    """Helper to run the CLI tool using local code."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    
     cmd = [
         sys.executable, "-m", "code_rag.entry.cli",
         "--db", str(DB_PATH),
     ] + list(args)
-    return subprocess.run(cmd, capture_output=True, text=True)
+    return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_e2e_env():
@@ -33,6 +36,15 @@ class Greeter:
         return f"Hello {name}"
 """)
     
+    # Create a dummy Java file
+    (E2E_TMP / "Calculator.java").write_text("""
+public class Calculator {
+    public int add(int a, int b) {
+        return a + b;
+    }
+}
+""")
+
     (E2E_TMP / "math_utils.py").write_text("""
 def calculate_hypotenuse(a, b):
     \"\"\"Calculates hypotenuse using Pythagorean theorem.\"\"\"
@@ -65,7 +77,8 @@ def test_e2e_sync_and_db_state():
         # Use --verbose to check for the indexing message
         sync_res = run_cli("--verbose", "sync", "--all")
         assert sync_res.returncode == 0
-        assert "Indexing 2 files" in sync_res.stderr
+        # Should now index 3 files (2 py + 1 java)
+        assert "Indexing 3 files" in sync_res.stderr
         
         # Check if database file was created
         assert DB_PATH.exists()
@@ -83,6 +96,12 @@ def test_e2e_search_command_execution():
     # New format: [class] Greeter | greet.py
     assert "[class] Greeter" in res.stdout
     
+    # Search for Java code
+    res = run_cli("search", "Calculator")
+    assert res.returncode == 0
+    assert "[class] Calculator" in res.stdout
+    assert "Calculator.java" in res.stdout
+
     # Search for math logic
     res = run_cli("search", "pythagorean theorem")
     assert res.returncode == 0
