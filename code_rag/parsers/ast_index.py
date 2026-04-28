@@ -2,9 +2,9 @@ import ast
 import hashlib
 import os
 import logging
-from typing import List, Optional
+from typing import List, Optional, Any
 from ..core.interfaces import IParser
-from ..core.models import KnowledgeUnit, UnitKind
+from ..core.models import KnowledgeUnit, UnitKind, Relation, RelationType
 
 logger = logging.getLogger(__name__)
 
@@ -25,36 +25,67 @@ class AstIndexParser(IParser):
                 source = f.read()
             
             tree = ast.parse(source)
-            units = []
             
             # Module level unit
             file_hash = hashlib.sha256(source.strip().encode()).hexdigest()
-            units.append(KnowledgeUnit(
-                id=f"{file_path}:module",
+            module_id = f"{file_path}:module"
+            
+            # Extract imports
+            relations = []
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        relations.append(Relation(
+                            from_id=module_id,
+                            to_id=alias.name,
+                            type=RelationType.IMPORTS
+                        ))
+                elif isinstance(node, ast.ImportFrom):
+                    module_name = node.module or ""
+                    for alias in node.names:
+                        full_name = f"{module_name}.{alias.name}" if module_name else alias.name
+                        relations.append(Relation(
+                            from_id=module_id,
+                            to_id=full_name,
+                            type=RelationType.IMPORTS
+                        ))
+
+            units = [KnowledgeUnit(
+                id=module_id,
                 kind=UnitKind.MODULE,
                 name=os.path.basename(file_path),
                 path=file_path,
                 code_hash=file_hash,
-                metadata={"raw_code": source}
-            ))
+                metadata={"raw_code": source},
+                relations=relations
+            )]
 
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    unit = self._parse_node(node, file_path, source)
-                    if unit:
-                        units.append(unit)
-            
+            # Recursive traversal to track parents and qualified names
+            def traverse(node: ast.AST, parent_node: Optional[ast.AST] = None, scope: str = ""):
+                for child in ast.iter_child_nodes(node):
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        unit = self._parse_node(child, file_path, source, parent_node, scope)
+                        if unit:
+                            units.append(unit)
+                            # Update scope for nested elements
+                            new_scope = f"{scope}.{child.name}" if scope else child.name
+                            traverse(child, child, new_scope)
+                    else:
+                        traverse(child, parent_node, scope)
+
+            traverse(tree)
             return units
         except Exception as e:
             logger.error("Failed to parse %s: %s", file_path, e)
             return []
 
-    def _parse_node(self, node, file_path: str, source: str) -> Optional[KnowledgeUnit]:
+    def _parse_node(self, node: Any, file_path: str, source: str, 
+                    parent_node: Optional[ast.AST] = None, scope: str = "") -> Optional[KnowledgeUnit]:
         """Helper to create a KnowledgeUnit from an AST node."""
         kind = UnitKind.FUNCTION
         if isinstance(node, ast.ClassDef):
             kind = UnitKind.CLASS
-        elif hasattr(node, "parent") and isinstance(node.parent, ast.ClassDef):
+        elif isinstance(parent_node, ast.ClassDef):
             kind = UnitKind.METHOD
 
         # Extract source code for the node
@@ -62,6 +93,10 @@ class AstIndexParser(IParser):
             node_source = ast.get_source_segment(source, node) or ""
             node_hash = hashlib.sha256(node_source.strip().encode()).hexdigest()
             
+            # Use qualified name for ID to prevent collisions (e.g., File:Class.Method)
+            qname = f"{scope}.{node.name}" if scope else node.name
+            unit_id = f"{file_path}:{qname}"
+
             # Simplified signature extraction
             signature = None
             if hasattr(node, "args"):
@@ -69,7 +104,7 @@ class AstIndexParser(IParser):
                 signature = f"({', '.join(args)})"
 
             return KnowledgeUnit(
-                id=f"{file_path}:{node.name}",
+                id=unit_id,
                 kind=kind,
                 name=node.name,
                 path=file_path,

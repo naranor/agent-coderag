@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from typing import List
+from typing import List, Optional
 from .interfaces import IStorage, IParser, IIntelligence
 from .models import KnowledgeUnit
 
@@ -11,10 +11,11 @@ class CodeRAGManager:
     Orchestrates the RAG workflow: parsing, distillation, and storage.
     """
     
-    def __init__(self, storage: IStorage, parser: IParser, intelligence: IIntelligence):
+    def __init__(self, storage: IStorage, parser: IParser, intelligence: IIntelligence, max_concurrency: int = 10):
         self.storage = storage
         self.parser = parser
         self.intelligence = intelligence
+        self.semaphore = asyncio.Semaphore(max_concurrency)
 
     async def sync_file(self, file_path: str, force_distill: bool = False):
         """
@@ -42,13 +43,14 @@ class CodeRAGManager:
                 logger.info("Summary missing for %s", unit.name)
             
             if should_distill:
-                logger.info("Distilling summary for %s...", unit.id)
-                try:
-                    unit.summary = await self.intelligence.summarize(raw_code, unit.name)
-                except Exception as e:
-                    logger.error("Failed to distill %s: %s", unit.name, e)
-                    # Keep old summary if available, otherwise stay None
-                    unit.summary = existing_unit.summary if existing_unit else None
+                async with self.semaphore:
+                    logger.info("Distilling summary for %s...", unit.id)
+                    try:
+                        unit.summary = await self.intelligence.summarize(raw_code, unit.name)
+                    except Exception as e:
+                        logger.error("Failed to distill %s: %s", unit.name, e)
+                        # Keep old summary if available, otherwise stay None
+                        unit.summary = existing_unit.summary if existing_unit else None
             else:
                 # Reuse existing summary if code hasn't changed
                 unit.summary = existing_unit.summary if existing_unit else None
