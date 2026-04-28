@@ -4,8 +4,9 @@ import os
 import sys
 import logging
 import json
+import fnmatch
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 import httpx
 
 # Suppress external library noise before they are imported by other modules
@@ -44,28 +45,54 @@ def get_manager(db_path: str, onnx_path: Optional[str] = None, verbose: bool = F
     
     return CodeRAGManager(storage, parser, distiller)
 
-def should_index(path: Path) -> bool:
+def load_ignore_patterns() -> List[str]:
+    """Loads patterns from .gitignore if it exists."""
+    patterns = []
+    ignore_file = Path(".gitignore")
+    if ignore_file.exists():
+        try:
+            with open(ignore_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        patterns.append(line)
+        except Exception as e:
+            logger.warning("Failed to load .gitignore: %s", e)
+    return patterns
+
+def should_index(path: Path, ignore_patterns: Optional[List[str]] = None) -> bool:
     """Filters files that should NOT be indexed."""
-    p_str = str(path).replace(chr(92), '/')  # Normalize Windows backslashes
-    exclude_patterns = ['tests/', 'venv/', '__pycache__/', '.git/']
-    for pattern in exclude_patterns:
-        if pattern in p_str:
-            return False
+    # 1. Default hardcoded exclusions
+    parts = set(path.parts)
+    exclude_dirs = {'tests', 'venv', '__pycache__', '.git', '.pytest_cache', 'dist', 'build'}
+    if any(ex in parts for ex in exclude_dirs):
+        return False
+    
+    # 2. Check .gitignore patterns
+    if ignore_patterns:
+        p_str = str(path).replace(os.sep, '/')
+        for pattern in ignore_patterns:
+            # Simple fnmatch support for gitignore-like patterns
+            if fnmatch.fnmatch(p_str, pattern) or fnmatch.fnmatch(p_str, f"*/{pattern}"):
+                return False
+
     return path.suffix == '.py'
 
 async def sync_cmd(args):
     manager = get_manager(args.db, args.onnx, args.verbose)
+    ignore_patterns = load_ignore_patterns()
+    
     if args.path:
         target_path = Path(args.path)
         if target_path.is_file():
             await manager.sync_file(str(target_path), force_distill=args.force)
         else:
-            paths = [str(p) for p in target_path.rglob("*.py") if should_index(p)]
+            paths = [str(p) for p in target_path.rglob("*.py") if should_index(p, ignore_patterns)]
             if args.verbose:
                 logger.info("Indexing %d files...", len(paths))
             await manager.sync_project(paths, force_distill=args.force)
     elif args.all:
-        paths = [str(p) for p in Path(".").rglob("*.py") if should_index(p)]
+        paths = [str(p) for p in Path(".").rglob("*.py") if should_index(p, ignore_patterns)]
         if args.verbose:
             logger.info("Indexing %d files...", len(paths))
         await manager.sync_project(paths, force_distill=args.force)

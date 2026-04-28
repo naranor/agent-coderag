@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
-from .models import KnowledgeUnit
+from .models import KnowledgeUnit, Relation
 
 class IParser(ABC):
     """Interface for extracting structure from code."""
@@ -20,6 +20,14 @@ class IStorage(ABC):
     
     @abstractmethod
     async def search_units(self, query: str, limit: int = 5) -> List[KnowledgeUnit]:
+        pass
+
+    @abstractmethod
+    async def upsert_relation(self, relation: Relation):
+        pass
+
+    @abstractmethod
+    async def get_relations(self, unit_id: str, direction: str = "out") -> List[Relation]:
         pass
 
 class IIntelligence(ABC):

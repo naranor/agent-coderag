@@ -3,6 +3,7 @@ import subprocess
 import pytest
 import shutil
 import time
+import sys
 from pathlib import Path
 
 # Paths
@@ -13,7 +14,7 @@ DB_PATH = PROJECT_ROOT / "e2e_tests" / "e2e_test.db"
 def run_cli(*args):
     """Helper to run the CLI tool."""
     cmd = [
-        "python3", "-m", "code_rag.entry.cli",
+        sys.executable, "-m", "code_rag.entry.cli",
         "--db", str(DB_PATH),
     ] + list(args)
     return subprocess.run(cmd, capture_output=True, text=True)

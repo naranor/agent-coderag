@@ -14,6 +14,12 @@ class RelationType(str, Enum):
     INHERITS = "inherits" # used
     DEFINES = "defines" # used
 
+class Relation(BaseModel):
+    """Connection between knowledge units."""
+    from_id: str # used
+    to_id: str # used
+    type: RelationType # used
+
 class KnowledgeUnit(BaseModel):
     """Represents a piece of code (function, class, module)."""
     id: str
@@ -25,9 +31,4 @@ class KnowledgeUnit(BaseModel):
     code_hash: str
     tags: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-
-class Relation(BaseModel):
-    """Connection between knowledge units."""
-    from_id: str # used
-    to_id: str # used
-    type: RelationType # used
+    relations: List[Relation] = Field(default_factory=list)
