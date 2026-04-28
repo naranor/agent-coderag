@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from typing import List
+from typing import List, Optional
 from .interfaces import IStorage, IParser, IIntelligence
 from .models import KnowledgeUnit
 
