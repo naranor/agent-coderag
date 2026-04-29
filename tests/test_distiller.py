@@ -91,6 +91,6 @@ class TestDistiller:
             mock_response = MagicMock()
             mock_response.choices = [MagicMock(message=MagicMock(content="Empty summary."))]
             mock_comp.return_value = mock_response
-            
-            result = await distiller.summarize("", "empty_func")
+
+            await distiller.summarize("", "empty_func")
             assert "empty_func" in mock_comp.call_args.kwargs["messages"][0]["content"]
