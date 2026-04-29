@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 import json
 import sys
 from io import StringIO

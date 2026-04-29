@@ -1,5 +1,4 @@
 import pytest
-from abc import ABC
 
 from code_rag.core.interfaces import IParser, IStorage, IIntelligence
 from code_rag.core.models import KnowledgeUnit, UnitKind
@@ -42,6 +41,7 @@ class TestIStorage:
     @pytest.mark.asyncio
     async def test_istorage_subclass(self):
         """Test that subclass can implement IStorage."""
+        from code_rag.core.models import Relation
         class MockStorage(IStorage):
             async def upsert_unit(self, unit: KnowledgeUnit):
                 pass
@@ -50,6 +50,12 @@ class TestIStorage:
                 return None
             
             async def search_units(self, query: str, limit: int = 5):
+                return []
+
+            async def upsert_relation(self, relation: Relation):
+                pass
+
+            async def get_relations(self, unit_id: str, direction: str = "out"):
                 return []
         
         storage = MockStorage()
