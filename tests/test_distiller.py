@@ -80,7 +80,6 @@ class TestDistiller:
             await distiller.summarize("def foo(): pass", "foo")
             call_kwargs = mock_comp.call_args.kwargs
             assert call_kwargs["model"] == "ollama/llama3"
-    
     @pytest.mark.asyncio
     async def test_summarize_empty_code(self):
         """Test summarization with empty code."""
