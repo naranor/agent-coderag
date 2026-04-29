@@ -274,6 +274,7 @@ class TestCLIConfig:
             args = argparse.Namespace(url=None, key=None, model=None, provider=None, json=True)
             
             old_stdout = sys.stdout
+            old_stdout = sys.stdout
             sys.stdout = StringIO()
             
             try:
