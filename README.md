@@ -74,9 +74,10 @@ docker run -v ~/.cache/agent-coderag:/root/.cache/agent-coderag agent-coderag se
 
 - **⚡ No PyTorch** — Uses `onnxruntime` and `tokenizers` (Rust) for instant startup
 - **💾 DuckDB VSS** — High-performance vector search in a single local file
+- **🏗️ Multi-Language** — Native indexing for Python (AST) and Java (javalang)
 - **🔄 Delta-Sync** — SHA-256 hashing re-distills only changed code
 - **🔌 Hybrid Intelligence** — Works offline; adds AI-distilled reasoning when LLM is connected
-- **📡 API Discovery** — Extract live API signatures from your installed libraries
+- **📡 API Discovery** — Extract live API signatures from Python modules or Java JARs
 
 [🔝 Back to top](#table-of-contents)
 
