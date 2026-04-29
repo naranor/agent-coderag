@@ -15,12 +15,12 @@ logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 logging.getLogger("onnxruntime").setLevel(logging.ERROR)
 
 # pylint: disable=wrong-import-position
-from ..core.manager import CodeRAGManager
-from ..storage.duckdb_impl import DuckDBStorage
-from ..parsers.ast_index import AstIndexParser
-from ..intelligence.embedder import Embedder, get_default_model_dir
-from ..intelligence.distiller import Distiller, DistillerConfig
-from ..discovery.dependency import extract_library_api
+from ..core.manager import CodeRAGManager  # noqa: E402
+from ..storage.duckdb_impl import DuckDBStorage  # noqa: E402
+from ..parsers.ast_index import AstIndexParser  # noqa: E402
+from ..intelligence.embedder import Embedder, get_default_model_dir  # noqa: E402
+from ..intelligence.distiller import Distiller, DistillerConfig  # noqa: E402
+from ..discovery.dependency import extract_library_api  # noqa: E402
 # pylint: enable=wrong-import-position
 
 # Setup basic logging - default to WARNING for clean output
