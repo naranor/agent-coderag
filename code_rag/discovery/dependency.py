@@ -1,6 +1,7 @@
 import importlib
 import inspect
 import logging
+from .java_discovery import extract_java_api
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +14,15 @@ def _get_method_signature(obj) -> str:
 
 async def extract_library_api(library_name: str) -> str:
     """
-    Extracts the public API (classes, methods) of an installed library using introspection.
+    Extracts the public API (classes, methods) of an installed library.
+    Tries Python first, then falls back to Java discovery in local caches.
     """
+    # 1. Try Python
     try:
+        # Check if it's a known python module first without importing if possible
+        # or just try to import.
         lib = importlib.import_module(library_name)
-        output = [f"# Public API for '{library_name}':"]
+        output = [f"# Public API for Python Library '{library_name}':"]
 
         for name, obj in inspect.getmembers(lib):
             if name.startswith("_"):
@@ -35,6 +40,10 @@ async def extract_library_api(library_name: str) -> str:
                 sig = _get_method_signature(obj)
                 output.append(f"- **Function: {name}{sig}**")
 
-        return "\n".join(output[:100]) # Limit output length
+        return "\n".join(output[:100])
+    except ImportError:
+        # 2. If Python import fails, try Java discovery
+        logger.info("Python import failed for '%s', trying Java discovery...", library_name)
+        return await extract_java_api(library_name)
     except Exception as e:
         return f"Failed to extract API for '{library_name}': {e}"
