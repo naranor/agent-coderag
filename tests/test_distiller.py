@@ -76,8 +76,8 @@ class TestDistiller:
             mock_response = MagicMock()
             mock_response.choices = [MagicMock(message=MagicMock(content="Ollama summary."))]
             mock_comp.return_value = mock_response
-            
-            result = await distiller.summarize("def foo(): pass", "foo")
+
+            await distiller.summarize("def foo(): pass", "foo")
             call_kwargs = mock_comp.call_args.kwargs
             assert call_kwargs["model"] == "ollama/llama3"
     
