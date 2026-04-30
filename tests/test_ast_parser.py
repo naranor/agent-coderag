@@ -1,5 +1,4 @@
 import pytest
-from pathlib import Path
 from code_rag.parsers.ast_index import AstIndexParser
 from code_rag.core.models import UnitKind
 

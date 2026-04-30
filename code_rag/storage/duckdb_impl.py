@@ -90,10 +90,12 @@ class DuckDBStorage(IStorage):
     async def get_unit(self, unit_id: str) -> Optional[KnowledgeUnit]:
         """Retrieves a unit by its unique ID."""
         cols = ", ".join(UNIT_COLUMNS)
-        res = self.conn.execute(f"SELECT {cols} FROM units WHERE id = ?", [unit_id]).fetchone()
+        res = self.conn.execute(f"SELECT {cols} FROM units WHERE id = ?", [unit_id]).fetchone() # nosec
         if not res:
             return None
-        return self._map_row_to_unit(res)
+        unit = self._map_row_to_unit(res)
+        unit.relations = await self.get_relations(unit_id, direction="out")
+        return unit
 
     async def search_units(self, query: str, limit: int = 5) -> List[KnowledgeUnit]:
         """Hybrid search using VSS and FTS."""
@@ -104,7 +106,7 @@ class DuckDBStorage(IStorage):
                 SELECT {cols} FROM units u
                 WHERE u.name ILIKE ? OR u.summary ILIKE ? 
                 LIMIT ?
-            """, [f"%{query}%", f"%{query}%", limit]).fetchall()
+            """, [f"%{query}%", f"%{query}%", limit]).fetchall() # nosec
         else:
             query_vec = self.embedder.embed([query])[0]
             res = self.conn.execute(f"""
@@ -113,9 +115,13 @@ class DuckDBStorage(IStorage):
                 JOIN unit_embeddings e ON u.id = e.id
                 ORDER BY dist ASC
                 LIMIT ?
-            """, [query_vec.tolist(), limit]).fetchall()
+            """, [query_vec.tolist(), limit]).fetchall() # nosec
             
-        return [self._map_row_to_unit(row) for row in res]
+        units = [self._map_row_to_unit(row) for row in res]
+        # Populate relations for each unit
+        for unit in units:
+            unit.relations = await self.get_relations(unit.id, direction="out")
+        return units
 
     async def upsert_relation(self, relation: Relation):
         """Inserts or updates a relation between units."""

@@ -1,5 +1,4 @@
 import asyncio
-import os
 from code_rag.core.manager import CodeRAGManager
 from code_rag.storage.duckdb_impl import DuckDBStorage
 from code_rag.parsers.ast_index import AstIndexParser
