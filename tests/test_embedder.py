@@ -3,7 +3,7 @@ import numpy as np
 import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from code_rag.intelligence.embedder import Embedder, get_default_model_dir, get_global_dir
 

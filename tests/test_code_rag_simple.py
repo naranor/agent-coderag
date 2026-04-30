@@ -1,15 +1,13 @@
 import pytest
 import asyncio
-import os
 import numpy as np
-from unittest.mock import MagicMock, AsyncMock, patch
-from pathlib import Path
+from unittest.mock import MagicMock, AsyncMock
 
 from code_rag.core.manager import CodeRAGManager
 from code_rag.storage.duckdb_impl import DuckDBStorage
 from code_rag.parsers.ast_index import AstIndexParser
 from code_rag.intelligence.embedder import Embedder
-from code_rag.intelligence.distiller import Distiller, DistillerConfig
+from code_rag.intelligence.distiller import Distiller
 from code_rag.core.models import UnitKind, KnowledgeUnit
 
 @pytest.fixture
@@ -68,5 +66,4 @@ async def test_coderag_sync_and_search(temp_db):
 
 if __name__ == "__main__":
     # For manual running
-    import sys
     asyncio.run(test_coderag_sync_and_search("manual_test.db"))

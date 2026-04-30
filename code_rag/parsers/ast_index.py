@@ -64,7 +64,8 @@ class AstIndexParser(IParser):
             def traverse(node: ast.AST, parent_node: Optional[ast.AST] = None, scope: str = ""):
                 for child in ast.iter_child_nodes(node):
                     if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                        unit = self._parse_node(child, file_path, source, parent_node, scope)
+                        context = {"parent": parent_node, "scope": scope}
+                        unit = self._parse_node(child, file_path, source, context)
                         if unit:
                             units.append(unit)
                             # Update scope for nested elements
@@ -80,8 +81,12 @@ class AstIndexParser(IParser):
             return []
 
     def _parse_node(self, node: Any, file_path: str, source: str, 
-                    parent_node: Optional[ast.AST] = None, scope: str = "") -> Optional[KnowledgeUnit]:
+                    context: Optional[dict] = None) -> Optional[KnowledgeUnit]:
         """Helper to create a KnowledgeUnit from an AST node."""
+        context = context or {}
+        parent_node = context.get("parent")
+        scope = context.get("scope", "")
+        
         kind = UnitKind.FUNCTION
         if isinstance(node, ast.ClassDef):
             kind = UnitKind.CLASS
