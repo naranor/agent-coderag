@@ -21,14 +21,33 @@ wheels/
 .installed.cfg
 *.egg
 
+# Tests & Quality
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
 # Virtual Environment
 venv/
 ENV/
 .venv/
 
+# Storage
+*.db
+*.db.wal
+lite_llm_cache.json
+
 # IDEs
 .idea/
 .vscode/
+.continue/
+.cursor/
+.codex/
+.junie/
+.agents/
+.ai/
+
 *.swp
 *.swo
 *.iml
