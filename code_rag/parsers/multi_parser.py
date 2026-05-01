@@ -12,7 +12,7 @@ class MultiParser(IParser):
     Delegates parsing to specific parsers based on file extension.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.parsers: Dict[str, IParser] = {
             ".py": AstIndexParser()
         }
