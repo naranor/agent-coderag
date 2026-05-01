@@ -19,7 +19,7 @@ class MultiParser(IParser):
         
         # Try to load JavaParser if javalang is available
         try:
-            from .java_parser import JavaParser
+            from .java_parser import JavaParser  # pylint: disable=import-outside-toplevel
             self.parsers[".java"] = JavaParser()
             logger.info("Java support enabled.")
         except ImportError:
