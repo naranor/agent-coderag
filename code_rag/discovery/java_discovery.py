@@ -1,5 +1,5 @@
 import os
-import subprocess
+import subprocess  # nosec
 import logging
 import shutil
 from pathlib import Path
@@ -41,7 +41,7 @@ def find_java_library_jar(library_name: str) -> List[Path]:
         if not found_jars and "gradle" in str(base_path):
             for group_dir in base_path.glob(f"**/{library_name}"):
                 for jar in group_dir.rglob("*.jar"):
-                     if "sources" not in jar.name and "javadoc" not in jar.name:
+                    if "sources" not in jar.name and "javadoc" not in jar.name:
                         found_jars.append(jar)
                         
     return found_jars
@@ -63,21 +63,11 @@ async def extract_java_api(library_name: str) -> str:
     
     try:
         # 1. List classes in JAR
-        # We use 'jar -tf' to list entries if 'jar' is available, 
-        # or we just try common entry points.
-        # For a truly robust solution, we'd need to parse the JAR manifest or entries.
-        
-        # Simple approach: use javap on the JAR directly to see what we can get.
-        # But javap needs specific class names.
-        
-        # Better approach for CodeRAG: 
-        # Since we want to DISCOVER the API, we need to know class names.
-        # Let's try to list classes in the JAR.
         jar_bin = shutil.which("jar")
         if not jar_bin:
             return f"Error: 'jar' utility not found. Cannot list classes in {target_jar.name}"
             
-        result = subprocess.run([jar_bin, "-tf", str(target_jar)], capture_output=True, text=True)
+        result = subprocess.run([jar_bin, "-tf", str(target_jar)], capture_output=True, text=True, check=False)  # nosec
         classes = [line.replace("/", ".").replace(".class", "") 
                    for line in result.stdout.splitlines() 
                    if line.endswith(".class") and "$" not in line] # Ignore inner classes
@@ -90,7 +80,7 @@ async def extract_java_api(library_name: str) -> str:
         # Limit to top 20 classes to avoid massive output
         for cls in classes[:20]:
             res = subprocess.run([javap_bin, "-public", "-classpath", str(target_jar), cls], 
-                                 capture_output=True, text=True)
+                                 capture_output=True, text=True, check=False)  # nosec
             if res.returncode == 0:
                 # Basic cleaning of javap output
                 lines = res.stdout.splitlines()
