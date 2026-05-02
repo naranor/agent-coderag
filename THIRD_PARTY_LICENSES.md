@@ -18,7 +18,7 @@
 | certifi                    | 2026.2.25    | Mozilla Public License 2.0 (MPL 2.0)                                           | https://github.com/certifi/python-certifi                             |
 | charset-normalizer         | 3.4.7        | MIT                                                                            | https://github.com/jawah/charset_normalizer/blob/master/CHANGELOG.md  |
 | click                      | 8.1.8        | BSD License                                                                    | https://github.com/pallets/click/                                     |
-| code-rag                   | 0.1.0        | UNKNOWN                                                                        | UNKNOWN                                                               |
+| agent-coderag            | 1.2.0        | MIT                                                                            | https://github.com/naranor/agent-coderag                              |
 | coverage                   | 7.13.5       | Apache-2.0                                                                     | https://github.com/coveragepy/coveragepy                              |
 | cuda-bindings              | 13.2.0       | LicenseRef-NVIDIA-SOFTWARE-LICENSE                                             | https://github.com/NVIDIA/cuda-python                                 |
 | cuda-pathfinder            | 1.5.2        | Apache-2.0                                                                     | https://github.com/NVIDIA/cuda-python                                 |
