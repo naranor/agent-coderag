@@ -2,7 +2,7 @@ import javalang
 import hashlib
 import os
 import logging
-from typing import List, Optional, Any
+from typing import List, Any
 from ..core.interfaces import IParser
 from ..core.models import KnowledgeUnit, UnitKind, Relation, RelationType
 
@@ -52,14 +52,14 @@ class JavaParser(IParser):
             )]
 
             # Extract classes and methods
-            for path, node in tree.filter(javalang.tree.ClassDeclaration):
+            for _, node in tree.filter(javalang.tree.ClassDeclaration):
                 units.append(self._parse_class(node, file_path, lines))
                 
                 for method in node.methods:
                     units.append(self._parse_method(method, node.name, file_path, lines))
             
             # Extract interfaces
-            for path, node in tree.filter(javalang.tree.InterfaceDeclaration):
+            for _, node in tree.filter(javalang.tree.InterfaceDeclaration):
                 units.append(self._parse_class(node, file_path, lines, is_interface=True))
                 
                 for method in node.methods:
