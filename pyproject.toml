@@ -34,6 +34,7 @@ dependencies = [
     "httpx",
     "aiofiles",
     "javalang",
+    "pathspec",
 ]
 
 [project.urls]

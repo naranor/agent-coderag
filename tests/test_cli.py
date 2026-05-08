@@ -23,12 +23,14 @@ class TestCLIHelpers:
         assert cli.should_index(path) is False
     
     def test_should_index_excluded_paths(self):
-        """Test should_index excludes certain paths."""
+        """Test should_index excludes certain paths using spec."""
         from pathlib import Path
-        assert cli.should_index(Path("tests/test.py")) is False
-        assert cli.should_index(Path("venv/lib.py")) is False
-        assert cli.should_index(Path("__pycache__/test.py")) is False
-        assert cli.should_index(Path(".git/config.py")) is False
+        spec = cli.load_ignore_patterns()
+        assert cli.should_index(Path("venv/lib.py"), spec) is False
+        assert cli.should_index(Path("sub/venv/lib.py"), spec) is False
+        assert cli.should_index(Path("__pycache__/test.py"), spec) is False
+        assert cli.should_index(Path(".git/config"), spec) is False
+        assert cli.should_index(Path("node_modules/pkg/index.js"), spec) is False
     
     @patch('code_rag.entry.cli.DistillerConfig')
     @patch('code_rag.entry.cli.Embedder')
