@@ -5,7 +5,7 @@ import sys
 import logging
 import json
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 import httpx
 import pathspec
 
