@@ -4,10 +4,10 @@ import os
 import sys
 import logging
 import json
-import fnmatch
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 import httpx
+import pathspec
 
 # Suppress external library noise before they are imported by other modules
 os.environ["LITELLM_VERBOSE"] = "FALSE"
@@ -45,53 +45,50 @@ def get_manager(db_path: str, onnx_path: Optional[str] = None, verbose: bool = F
     
     return CodeRAGManager(storage, parser, distiller)
 
-def load_ignore_patterns() -> List[str]:
+def load_ignore_patterns() -> pathspec.PathSpec:
     """Loads patterns from .gitignore if it exists."""
-    patterns = []
+    lines = []
     ignore_file = Path(".gitignore")
     if ignore_file.exists():
         try:
             with open(ignore_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#"):
-                        patterns.append(line)
+                lines = f.readlines()
         except Exception as e:
             logger.warning("Failed to load .gitignore: %s", e)
-    return patterns
-
-def should_index(path: Path, ignore_patterns: Optional[List[str]] = None) -> bool:
-    """Filters files that should NOT be indexed."""
-    # 1. Default hardcoded exclusions
-    parts = set(path.parts)
-    exclude_dirs = {'tests', 'venv', '__pycache__', '.git', '.pytest_cache', 'dist', 'build', 'node_modules'}
-    if any(ex in parts for ex in exclude_dirs):
-        return False
     
-    # 2. Check .gitignore patterns
-    if ignore_patterns:
-        p_str = str(path).replace(os.sep, '/')
-        for pattern in ignore_patterns:
-            # Simple fnmatch support for gitignore-like patterns
-            if fnmatch.fnmatch(p_str, pattern) or fnmatch.fnmatch(p_str, f"*/{pattern}"):
-                return False
+    # Always exclude common noisy directories as a safety measure
+    common_excludes = [
+        'venv/', '.venv/', '__pycache__/', '.git/', '.pytest_cache/',
+        'dist/', 'build/', 'node_modules/', '.idea/', '.vscode/', '.agents/', '.ai/'
+    ]
+    return pathspec.PathSpec.from_lines('gitignore', lines + common_excludes)
+
+def should_index(path: Path, ignore_spec: Optional[pathspec.PathSpec] = None) -> bool:
+    """Filters files that should NOT be indexed."""
+    # Convert backslashes to forward slashes for cross-platform matching
+    path_str = str(path).replace(os.sep, '/')
+    
+    # 1. Check against ignore spec (including .gitignore and common excludes)
+    if ignore_spec and ignore_spec.match_file(path_str):
+        return False
 
     return path.suffix in {'.py', '.java'}
 
 async def sync_cmd(args):
     manager = get_manager(args.db, args.onnx, args.verbose)
-    ignore_patterns = load_ignore_patterns()
+    ignore_spec = load_ignore_patterns()
     
     extensions = ("*.py", "*.java")
     
     if args.path:
         target_path = Path(args.path)
         if target_path.is_file():
-            await manager.sync_file(str(target_path), force_distill=args.force)
+            if should_index(target_path, ignore_spec):
+                await manager.sync_file(str(target_path), force_distill=args.force)
         else:
             paths = []
             for ext in extensions:
-                paths.extend([str(p) for p in target_path.rglob(ext) if should_index(p, ignore_patterns)])
+                paths.extend([str(p) for p in target_path.rglob(ext) if should_index(p, ignore_spec)])
             
             if args.verbose:
                 logger.info("Indexing %d files...", len(paths))
@@ -99,7 +96,7 @@ async def sync_cmd(args):
     elif args.all:
         paths = []
         for ext in extensions:
-            paths.extend([str(p) for p in Path(".").rglob(ext) if should_index(p, ignore_patterns)])
+            paths.extend([str(p) for p in Path(".").rglob(ext) if should_index(p, ignore_spec)])
             
         if args.verbose:
             logger.info("Indexing %d files...", len(paths))
