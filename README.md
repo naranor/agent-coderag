@@ -164,6 +164,18 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ---
 
+## 🏗️ Roadmap
+
+- [ ] **Go Support**: Native AST parsing for Golang
+- [ ] **C++ Support**: Clang-based symbol extraction
+- [ ] **IDE Integration**: VS Code and IntelliJ plugins
+- [ ] **Server Mode**: Long-running process with gRPC API
+- [ ] **Context Compression**: Auto-distillation of context windows for Gemini/Claude
+
+[🔝 Back to top](#table-of-contents)
+
+---
+
 ## 📄 License
 
 MIT © 2026 [Igor Boloban](https://github.com/naranor)

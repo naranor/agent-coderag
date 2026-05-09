@@ -43,6 +43,22 @@ pytest e2e_tests/
 4. Commit with a clear message
 5. Push to your fork and submit a PR
 
+## Commit Messages
+
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
+- `feat:` for new features
+- `fix:` for bug fixes
+- `docs:` for documentation changes
+- `chore:` for maintenance
+- `test:` for adding or fixing tests
+
+## Creating a Pull Request
+
+- Provide a clear title and description
+- Reference any related issues (e.g., `Closes #123`)
+- Ensure all CI checks are green before requesting a review
+- Keep PRs focused on a single change
+
 ## License
 
 By contributing to CodeRAG, you agree that your contributions will be licensed under the MIT License.
