@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discussion
+    url: https://github.com/naranor/agent-coderag/discussions
+    about: Please ask questions and share ideas here.
+  - name: 🐞 Bug Report
+    url: https://github.com/naranor/agent-coderag/issues/new?template=bug_report.yml
+    about: Report a bug in agent-coderag
+  - name: ✨ Feature Request
+    url: https://github.com/naranor/agent-coderag/issues/new?template=feature_request.yml
+    about: Suggest a new feature or improvement
