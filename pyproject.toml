@@ -37,6 +37,16 @@ dependencies = [
     "pathspec",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "prospector[with_mypy,with_bandit,with_vulture]",
+    "ruff",
+    "pre-commit"
+]
+
 [project.urls]
 Homepage = "https://github.com/naranor/agent-coderag"
 Repository = "https://github.com/naranor/agent-coderag"

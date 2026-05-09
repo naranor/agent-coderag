@@ -13,7 +13,7 @@
   <a href="https://github.com/naranor/agent-coderag/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/naranor/agent-coderag/ci.yml?branch=main&style=for-the-badge&logo=github&label=CI" alt="Build Status"></a>
   <a href="https://pypi.org/project/agent-coderag/"><img src="https://img.shields.io/pypi/v/agent-coderag?style=for-the-badge&logo=python&color=blue" alt="PyPI Version"></a>
   <a href="https://github.com/naranor/agent-coderag/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="License"></a>
-  <a href="https://img.shields.io/badge/coverage-81%25-green?style=for-the-badge" alt="Test Coverage"></a>
+  <a href="https://codecov.io/gh/naranor/agent-coderag"><img src="https://img.shields.io/codecov/c/github/naranor/agent-coderag?style=for-the-badge&logo=codecov" alt="Test Coverage"></a>
 </p>
 
 <p align="center">
