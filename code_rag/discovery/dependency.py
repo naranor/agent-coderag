@@ -5,12 +5,14 @@ from .java_discovery import extract_java_api
 
 logger = logging.getLogger(__name__)
 
+
 def _get_method_signature(obj) -> str:
     """Helper to safely get a signature string."""
     try:
         return str(inspect.signature(obj))
     except (ValueError, TypeError):
         return "(...)"
+
 
 async def extract_library_api(library_name: str) -> str:
     """
@@ -43,7 +45,9 @@ async def extract_library_api(library_name: str) -> str:
         return "\n".join(output[:100])
     except ImportError:
         # 2. If Python import fails, try Java discovery
-        logger.info("Python import failed for '%s', trying Java discovery...", library_name)
+        logger.info(
+            "Python import failed for '%s', trying Java discovery...", library_name
+        )
         return await extract_java_api(library_name)
     except Exception as e:
         return f"Failed to extract API for '{library_name}': {e}"

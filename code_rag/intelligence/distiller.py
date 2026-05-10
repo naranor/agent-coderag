@@ -7,6 +7,7 @@ from .embedder import get_global_dir
 
 logger = logging.getLogger(__name__)
 
+
 class DistillerConfig(BaseModel):
     model: str = "auto"
     api_base: str = "http://localhost:8081/api/v1"
@@ -38,11 +39,12 @@ class DistillerConfig(BaseModel):
         except Exception as e:
             logger.error("Failed to save config to %s: %s", config_path, e)
 
+
 class Distiller(IIntelligence):
     """
     LLM-based code analyst that extracts the 'intent' from raw code.
     """
-    
+
     def __init__(self, config: DistillerConfig):
         self.config = config
 
@@ -51,10 +53,10 @@ class Distiller(IIntelligence):
         Generates a concise technical summary of what the code DOES.
         """
         prompt = f"""
-Analyze the following code block for '{unit_name}'. 
-Provide a concise, 1-2 sentence technical description of its core logic and intent. 
-Focus on WHAT it accomplishes and its role in the system. 
-DO NOT repeat the signature. 
+Analyze the following code block for '{unit_name}'.
+Provide a concise, 1-2 sentence technical description of its core logic and intent.
+Focus on WHAT it accomplishes and its role in the system.
+DO NOT repeat the signature.
 DO NOT include docstrings or comments in your summary.
 
 CODE:
@@ -73,8 +75,8 @@ SUMMARY:
             api_key=self.config.api_key,
             temperature=self.config.temperature,
             timeout=30,
-            custom_llm_provider=self.config.provider
+            custom_llm_provider=self.config.provider,
         )
-        
+
         summary = response.choices[0].message.content.strip()
         return summary

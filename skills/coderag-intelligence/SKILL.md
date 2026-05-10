@@ -33,7 +33,7 @@ agent-coderag api <library_name>
 ## 📝 USAGE PROTOCOL
 
 1. **Think Semantically**: Before using `grep_search`, try `agent-coderag search "<your intent>"`.
-2. **Context Efficiency**: Before using external library call `agent-coderag api <library_name>` to collect information about the api of library. 
+2. **Context Efficiency**: Before using external library call `agent-coderag api <library_name>` to collect information about the api of library.
    RAG results give you the `Intent` (distilled summary) of functions. Use this to identify which file to read with `read_file` instead of reading multiple files blindly.
 3. **Always Sync**: Every time you successfully call `replace` or `write_file`, run `agent-coderag sync` to keep your "memory" up to date.
 4. **Impact Check**: If changing a core method, search for it in RAG first to see its described role and search for callers via `ast-index callers`.

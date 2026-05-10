@@ -2,26 +2,32 @@ from enum import Enum
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 
+
 class UnitKind(str, Enum):
     MODULE = "module"
     CLASS = "class"
     FUNCTION = "function"
     METHOD = "method"
 
+
 class RelationType(str, Enum):
-    IMPORTS = "imports" # used
-    CALLS = "calls" # used
-    INHERITS = "inherits" # used
-    DEFINES = "defines" # used
+    IMPORTS = "imports"  # used
+    CALLS = "calls"  # used
+    INHERITS = "inherits"  # used
+    DEFINES = "defines"  # used
+
 
 class Relation(BaseModel):
     """Connection between knowledge units."""
-    from_id: str # used
-    to_id: str # used
-    type: RelationType # used
+
+    from_id: str  # used
+    to_id: str  # used
+    type: RelationType  # used
+
 
 class KnowledgeUnit(BaseModel):
     """Represents a piece of code (function, class, module)."""
+
     id: str
     kind: UnitKind
     name: str
