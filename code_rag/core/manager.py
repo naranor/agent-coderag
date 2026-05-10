@@ -6,12 +6,19 @@ from .models import KnowledgeUnit
 
 logger = logging.getLogger(__name__)
 
+
 class CodeRAGManager:
     """
     Orchestrates the RAG workflow: parsing, distillation, and storage.
     """
-    
-    def __init__(self, storage: IStorage, parser: IParser, intelligence: IIntelligence, max_concurrency: int = 10):
+
+    def __init__(
+        self,
+        storage: IStorage,
+        parser: IParser,
+        intelligence: IIntelligence,
+        max_concurrency: int = 10,
+    ):
         self.storage = storage
         self.parser = parser
         self.intelligence = intelligence
@@ -23,14 +30,14 @@ class CodeRAGManager:
         """
         # 1. Parse AST to get units
         current_units = await self.parser.distill_file(file_path)
-        
+
         for unit in current_units:
             # v5.40: Delta-distillation logic
             raw_code = unit.metadata.pop("raw_code", "")
-            
+
             # 2. Get existing unit to check hash
             existing_unit = await self.storage.get_unit(unit.id)
-            
+
             should_distill = force_distill
             if not existing_unit:
                 should_distill = True
@@ -41,12 +48,14 @@ class CodeRAGManager:
             elif not existing_unit.summary:
                 should_distill = True
                 logger.info("Summary missing for %s", unit.name)
-            
+
             if should_distill:
                 async with self.semaphore:
                     logger.info("Distilling summary for %s...", unit.id)
                     try:
-                        unit.summary = await self.intelligence.summarize(raw_code, unit.name)
+                        unit.summary = await self.intelligence.summarize(
+                            raw_code, unit.name
+                        )
                     except Exception as e:
                         logger.error("Failed to distill %s: %s", unit.name, e)
                         # Keep old summary if available, otherwise stay None
@@ -54,7 +63,7 @@ class CodeRAGManager:
             else:
                 # Reuse existing summary if code hasn't changed
                 unit.summary = existing_unit.summary if existing_unit else None
-            
+
             # 3. Save to storage (includes embedding generation)
             await self.storage.upsert_unit(unit)
 

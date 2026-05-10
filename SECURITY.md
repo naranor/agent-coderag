@@ -12,5 +12,5 @@ We take the security of CodeRAG seriously. If you find a security vulnerability,
 *   CodeRAG saves its configuration in a global cache folder (`~/.cache/agent-coderag/config.json`). This file is readable by your user. Ensure your system is secure if you store sensitive keys there.
 
 ### Local Database
-*   The `.code_rag.db` file contains embeddings and metadata of your code. By default, it is stored in your project directory. 
+*   The `.code_rag.db` file contains embeddings and metadata of your code. By default, it is stored in your project directory.
 *   **Avoid sharing this file** if your source code is private, as embeddings can sometimes be used to reconstruct parts of the original text.

@@ -8,13 +8,24 @@ from ..core.models import KnowledgeUnit, UnitKind, Relation, RelationType
 logger = logging.getLogger(__name__)
 
 # Canonical list of columns for units table to ensure robust mapping
-UNIT_COLUMNS = ["id", "kind", "name", "path", "signature", "summary", "code_hash", "tags", "metadata"]
+UNIT_COLUMNS = [
+    "id",
+    "kind",
+    "name",
+    "path",
+    "signature",
+    "summary",
+    "code_hash",
+    "tags",
+    "metadata",
+]
+
 
 class DuckDBStorage(IStorage):
     """
     DuckDB-based storage with Vector Similarity Search (VSS) capabilities.
     """
-    
+
     def __init__(self, db_path: str, embedder=None):
         self.db_path = db_path
         self.embedder = embedder
@@ -25,21 +36,23 @@ class DuckDBStorage(IStorage):
         """Initializes tables and extensions."""
         self.conn.execute("INSTALL vss;")
         self.conn.execute("LOAD vss;")
-        
+
         # Metadata table
-        cols_definition = ", ".join([
-            "id VARCHAR PRIMARY KEY",
-            "kind VARCHAR",
-            "name VARCHAR",
-            "path VARCHAR",
-            "signature VARCHAR",
-            "summary VARCHAR",
-            "code_hash VARCHAR",
-            "tags VARCHAR[]",
-            "metadata JSON"
-        ])
+        cols_definition = ", ".join(
+            [
+                "id VARCHAR PRIMARY KEY",
+                "kind VARCHAR",
+                "name VARCHAR",
+                "path VARCHAR",
+                "signature VARCHAR",
+                "summary VARCHAR",
+                "code_hash VARCHAR",
+                "tags VARCHAR[]",
+                "metadata JSON",
+            ]
+        )
         self.conn.execute(f"CREATE TABLE IF NOT EXISTS units ({cols_definition})")
-        
+
         # Vector table (MiniLM dimension is 384)
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS unit_embeddings (
@@ -64,25 +77,39 @@ class DuckDBStorage(IStorage):
         # 1. Upsert metadata
         placeholders = ", ".join(["?"] * len(UNIT_COLUMNS))
         cols = ", ".join(UNIT_COLUMNS)
-        self.conn.execute(f"""
+        self.conn.execute(
+            f"""
             INSERT OR REPLACE INTO units ({cols})
             VALUES ({placeholders})
-        """, [
-            unit.id, unit.kind.value, unit.name, unit.path, 
-            unit.signature, unit.summary, unit.code_hash, 
-            unit.tags, json.dumps(unit.metadata)
-        ])
+        """,
+            [
+                unit.id,
+                unit.kind.value,
+                unit.name,
+                unit.path,
+                unit.signature,
+                unit.summary,
+                unit.code_hash,
+                unit.tags,
+                json.dumps(unit.metadata),
+            ],
+        )
 
         # 2. Update embedding
         if self.embedder:
             # Fallback to name/signature if summary is missing
-            text_to_embed = unit.summary or f"{unit.kind.value} {unit.name} {unit.signature or ''}"
+            text_to_embed = (
+                unit.summary or f"{unit.kind.value} {unit.name} {unit.signature or ''}"
+            )
             vec = self.embedder.embed([text_to_embed])[0]
-            self.conn.execute("""
+            self.conn.execute(
+                """
                 INSERT OR REPLACE INTO unit_embeddings (id, vec)
                 VALUES (?, ?)
-            """, [unit.id, vec.tolist()])
-        
+            """,
+                [unit.id, vec.tolist()],
+            )
+
         # 3. Upsert relations
         for rel in unit.relations:
             await self.upsert_relation(rel)
@@ -90,7 +117,9 @@ class DuckDBStorage(IStorage):
     async def get_unit(self, unit_id: str) -> Optional[KnowledgeUnit]:
         """Retrieves a unit by its unique ID."""
         cols = ", ".join(UNIT_COLUMNS)
-        res = self.conn.execute(f"SELECT {cols} FROM units WHERE id = ?", [unit_id]).fetchone() # nosec
+        res = self.conn.execute(
+            f"SELECT {cols} FROM units WHERE id = ?", [unit_id]
+        ).fetchone()  # nosec
         if not res:
             return None
         unit = self._map_row_to_unit(res)
@@ -102,21 +131,27 @@ class DuckDBStorage(IStorage):
         cols = ", ".join([f"u.{c}" for c in UNIT_COLUMNS])
         if not self.embedder:
             # Fallback to basic text search if no embedder
-            res = self.conn.execute(f"""
+            res = self.conn.execute(
+                f"""
                 SELECT {cols} FROM units u
-                WHERE u.name ILIKE ? OR u.summary ILIKE ? 
+                WHERE u.name ILIKE ? OR u.summary ILIKE ?
                 LIMIT ?
-            """, [f"%{query}%", f"%{query}%", limit]).fetchall() # nosec
+            """,
+                [f"%{query}%", f"%{query}%", limit],
+            ).fetchall()  # nosec
         else:
             query_vec = self.embedder.embed([query])[0]
-            res = self.conn.execute(f"""
+            res = self.conn.execute(
+                f"""
                 SELECT {cols}, array_distance(e.vec, ?::FLOAT[384]) as dist
                 FROM units u
                 JOIN unit_embeddings e ON u.id = e.id
                 ORDER BY dist ASC
                 LIMIT ?
-            """, [query_vec.tolist(), limit]).fetchall() # nosec
-            
+            """,
+                [query_vec.tolist(), limit],
+            ).fetchall()  # nosec
+
         units = [self._map_row_to_unit(row) for row in res]
         # Populate relations for each unit
         for unit in units:
@@ -125,19 +160,31 @@ class DuckDBStorage(IStorage):
 
     async def upsert_relation(self, relation: Relation):
         """Inserts or updates a relation between units."""
-        self.conn.execute("""
+        self.conn.execute(
+            """
             INSERT OR REPLACE INTO relations (from_id, to_id, type)
             VALUES (?, ?, ?)
-        """, [relation.from_id, relation.to_id, relation.type.value])
+        """,
+            [relation.from_id, relation.to_id, relation.type.value],
+        )
 
-    async def get_relations(self, unit_id: str, direction: str = "out") -> List[Relation]:
+    async def get_relations(
+        self, unit_id: str, direction: str = "out"
+    ) -> List[Relation]:
         """Retrieves relations for a unit."""
         if direction == "out":
-            res = self.conn.execute("SELECT from_id, to_id, type FROM relations WHERE from_id = ?", [unit_id]).fetchall()
+            res = self.conn.execute(
+                "SELECT from_id, to_id, type FROM relations WHERE from_id = ?",
+                [unit_id],
+            ).fetchall()
         else:
-            res = self.conn.execute("SELECT from_id, to_id, type FROM relations WHERE to_id = ?", [unit_id]).fetchall()
-        
-        return [Relation(from_id=r[0], to_id=r[1], type=RelationType(r[2])) for r in res]
+            res = self.conn.execute(
+                "SELECT from_id, to_id, type FROM relations WHERE to_id = ?", [unit_id]
+            ).fetchall()
+
+        return [
+            Relation(from_id=r[0], to_id=r[1], type=RelationType(r[2])) for r in res
+        ]
 
     def _map_row_to_unit(self, row) -> KnowledgeUnit:
         # Map by index based on our explicit column list
@@ -151,5 +198,5 @@ class DuckDBStorage(IStorage):
             summary=data["summary"],
             code_hash=data["code_hash"],
             tags=data["tags"] if data["tags"] else [],
-            metadata=json.loads(data["metadata"]) if data["metadata"] else {}
+            metadata=json.loads(data["metadata"]) if data["metadata"] else {},
         )

@@ -107,7 +107,7 @@ graph LR
 
 ## Agent-Native Usage
 
-agent-coderag is designed to be the primary tool for your AI agents. 
+agent-coderag is designed to be the primary tool for your AI agents.
 
 ### The Protocol:
 1.  **Search First:** Instead of reading files, the agent runs agent-coderag --json search.
@@ -123,7 +123,7 @@ agent-coderag --json search "database init" --limit 1
 
 ## Development & Testing
 
-We maintain a strict quality bar. 
+We maintain a strict quality bar.
 
 ```bash
 # Install development dependencies

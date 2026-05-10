@@ -1,6 +1,7 @@
 import pytest
 from code_rag.discovery.dependency import extract_library_api
 
+
 @pytest.mark.asyncio
 async def test_extract_library_api_success():
     """
@@ -17,6 +18,7 @@ async def test_extract_library_api_success():
     assert "Function: dumps" in result_json
     assert "Class: JSONEncoder" in result_json
 
+
 @pytest.mark.asyncio
 async def test_extract_library_api_failure():
     """
@@ -26,6 +28,7 @@ async def test_extract_library_api_failure():
     # Falls back to Java and reports Java-specific error
     assert "Could not find JAR files" in result
 
+
 @pytest.mark.asyncio
 async def test_extract_library_api_limit():
     """
@@ -33,4 +36,4 @@ async def test_extract_library_api_limit():
     """
     result = await extract_library_api("os")
     lines = result.splitlines()
-    assert len(lines) <= 101 # header + limit
+    assert len(lines) <= 101  # header + limit

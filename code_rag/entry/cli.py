@@ -27,23 +27,25 @@ from ..discovery.dependency import extract_library_api  # noqa: E402
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("agent-coderag")
 
+
 def get_manager(db_path: str, onnx_path: Optional[str] = None, verbose: bool = False):
     """Initializes the RAG manager."""
     if verbose:
         logging.getLogger().setLevel(logging.INFO)
-        
+
     config = DistillerConfig.load()
     config.api_base = os.getenv("AGENT_PROXY_URL", config.api_base)
     config.api_key = os.getenv("AGENT_PROXY_KEY", config.api_key)
     config.model = os.getenv("AGENT_MODEL", config.model)
     config.provider = os.getenv("AGENT_PROVIDER", config.provider)
-    
+
     embedder = Embedder(model_path=onnx_path)
     storage = DuckDBStorage(db_path, embedder=embedder)
     parser = MultiParser()
     distiller = Distiller(config)
-    
+
     return CodeRAGManager(storage, parser, distiller)
+
 
 def load_ignore_patterns() -> pathspec.PathSpec:
     """Loads patterns from .gitignore if it exists."""
@@ -55,31 +57,43 @@ def load_ignore_patterns() -> pathspec.PathSpec:
                 lines = f.readlines()
         except Exception as e:
             logger.warning("Failed to load .gitignore: %s", e)
-    
+
     # Always exclude common noisy directories as a safety measure
     common_excludes = [
-        'venv/', '.venv/', '__pycache__/', '.git/', '.pytest_cache/',
-        'dist/', 'build/', 'node_modules/', '.idea/', '.vscode/', '.agents/', '.ai/'
+        "venv/",
+        ".venv/",
+        "__pycache__/",
+        ".git/",
+        ".pytest_cache/",
+        "dist/",
+        "build/",
+        "node_modules/",
+        ".idea/",
+        ".vscode/",
+        ".agents/",
+        ".ai/",
     ]
-    return pathspec.PathSpec.from_lines('gitignore', lines + common_excludes)
+    return pathspec.PathSpec.from_lines("gitignore", lines + common_excludes)
+
 
 def should_index(path: Path, ignore_spec: Optional[pathspec.PathSpec] = None) -> bool:
     """Filters files that should NOT be indexed."""
     # Convert backslashes to forward slashes for cross-platform matching
-    path_str = str(path).replace(os.sep, '/')
-    
+    path_str = str(path).replace(os.sep, "/")
+
     # 1. Check against ignore spec (including .gitignore and common excludes)
     if ignore_spec and ignore_spec.match_file(path_str):
         return False
 
-    return path.suffix in {'.py', '.java'}
+    return path.suffix in {".py", ".java"}
+
 
 async def sync_cmd(args):
     manager = get_manager(args.db, args.onnx, args.verbose)
     ignore_spec = load_ignore_patterns()
-    
+
     extensions = ("*.py", "*.java")
-    
+
     if args.path:
         target_path = Path(args.path)
         if target_path.is_file():
@@ -88,29 +102,38 @@ async def sync_cmd(args):
         else:
             paths = []
             for ext in extensions:
-                paths.extend([str(p) for p in target_path.rglob(ext) if should_index(p, ignore_spec)])
-            
+                paths.extend(
+                    [
+                        str(p)
+                        for p in target_path.rglob(ext)
+                        if should_index(p, ignore_spec)
+                    ]
+                )
+
             if args.verbose:
                 logger.info("Indexing %d files...", len(paths))
             await manager.sync_project(paths, force_distill=args.force)
     elif args.all:
         paths = []
         for ext in extensions:
-            paths.extend([str(p) for p in Path(".").rglob(ext) if should_index(p, ignore_spec)])
-            
+            paths.extend(
+                [str(p) for p in Path(".").rglob(ext) if should_index(p, ignore_spec)]
+            )
+
         if args.verbose:
             logger.info("Indexing %d files...", len(paths))
         await manager.sync_project(paths, force_distill=args.force)
-    
+
     if not args.json:
         print("Done.")
     else:
         print(json.dumps({"status": "success"}))
 
+
 async def search_cmd(args):
     manager = get_manager(args.db, args.onnx, args.verbose)
     results = await manager.search(args.query, limit=args.limit)
-    
+
     if args.json:
         output = [unit.model_dump() for unit in results]
         print(json.dumps(output, indent=2, ensure_ascii=False))
@@ -126,12 +149,14 @@ async def search_cmd(args):
             print(f"  {unit.summary}")
         print("-" * 20)
 
+
 async def api_cmd(args):
     output = await extract_library_api(args.library)
     if args.json:
         print(json.dumps({"api": output}))
     else:
         print(output)
+
 
 async def download_file(url: str, dest: Path):
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -144,12 +169,13 @@ async def download_file(url: str, dest: Path):
                     f.write(chunk)
     return True
 
+
 async def setup_cmd(args):
     dest_dir = get_default_model_dir()
     base_url = "https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main"
     files = {
         "model.onnx": f"{base_url}/onnx/model.onnx",
-        "tokenizer.json": f"{base_url}/tokenizer.json"
+        "tokenizer.json": f"{base_url}/tokenizer.json",
     }
     force = getattr(args, "force", False)
     for filename, url in files.items():
@@ -157,6 +183,7 @@ async def setup_cmd(args):
         if not dest_path.exists() or force:
             await download_file(url, dest_path)
     print("Setup complete.")
+
 
 def config_cmd(args):
     config = DistillerConfig.load()
@@ -174,13 +201,14 @@ def config_cmd(args):
     else:
         print("Config updated.")
 
+
 async def rebuild_cmd(args):
     db_path = Path(args.db)
     if db_path.exists():
         if args.verbose:
             logger.info("Removing old database: %s", db_path)
         db_path.unlink()
-    
+
     # Trigger full sync
     args.all = True
     args.force = True
@@ -193,14 +221,16 @@ def main():
     parser.add_argument("--db", default=".code_rag.db", help="Path to DuckDB database")
     parser.add_argument("--onnx", help="Path to ONNX embedding model")
     parser.add_argument("--verbose", action="store_true", help="Show debug logs")
-    parser.add_argument("--json", action="store_true", help="Output results in JSON format")
-    
+    parser.add_argument(
+        "--json", action="store_true", help="Output results in JSON format"
+    )
+
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Commands
     subparsers.add_parser("setup", help="Download models")
     subparsers.add_parser("rebuild", help="Nuke database and re-index everything")
-    
+
     conf_p = subparsers.add_parser("config", help="AI settings")
     conf_p.add_argument("--url", help="API base URL")
     conf_p.add_argument("--key", help="API key")
