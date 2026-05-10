@@ -118,8 +118,9 @@ class DuckDBStorage(IStorage):
         """Retrieves a unit by its unique ID."""
         cols = ", ".join(UNIT_COLUMNS)
         res = self.conn.execute(
-            f"SELECT {cols} FROM units WHERE id = ?", [unit_id]
-        ).fetchone()  # nosec
+            f"SELECT {cols} FROM units WHERE id = ?",  # nosec
+            [unit_id],
+        ).fetchone()
         if not res:
             return None
         unit = self._map_row_to_unit(res)
@@ -136,9 +137,9 @@ class DuckDBStorage(IStorage):
                 SELECT {cols} FROM units u
                 WHERE u.name ILIKE ? OR u.summary ILIKE ?
                 LIMIT ?
-            """,
+            """,  # nosec
                 [f"%{query}%", f"%{query}%", limit],
-            ).fetchall()  # nosec
+            ).fetchall()
         else:
             query_vec = self.embedder.embed([query])[0]
             res = self.conn.execute(
@@ -148,9 +149,9 @@ class DuckDBStorage(IStorage):
                 JOIN unit_embeddings e ON u.id = e.id
                 ORDER BY dist ASC
                 LIMIT ?
-            """,
+            """,  # nosec
                 [query_vec.tolist(), limit],
-            ).fetchall()  # nosec
+            ).fetchall()
 
         units = [self._map_row_to_unit(row) for row in res]
         # Populate relations for each unit
