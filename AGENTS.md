@@ -30,7 +30,7 @@ Ensure your tool policy allows execution of `agent-coderag`. Use it to "compress
 
 ## Output Schema
 The `--json` flag returns a list of objects:
-- `id`: Unique identifier (path:name).
+- `id`: Unique identifier (path:qname).
 - `name`: Entity name.
 - `signature`: Function/Method arguments and return type.
 - `summary`: High-level technical intent.

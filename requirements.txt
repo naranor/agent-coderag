@@ -6,3 +6,5 @@ tokenizers
 pydantic
 httpx
 aiofiles
+pathspec
+tree-sitter

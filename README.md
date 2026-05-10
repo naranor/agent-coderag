@@ -39,7 +39,7 @@ In 2026, AI coding agents are limited by stale training data. They hallucinate l
 
 - **Instant Startup:** Built on onnxruntime and Rust-based tokenizers. Zero PyTorch overhead.
 - **Context Compression:** Replace 10,000 lines of raw code with a 200-token semantic summary.
-- **Multi-Parser Engine:** Native structural analysis for Python (AST) and Java (javalang).
+- **Universal Tree-Sitter Parser:** Supports 25+ languages (Python, JS/TS, Rust, Java, C++, Go, Ruby, etc.) with high precision.
 - **API Discovery:** On-the-fly extraction of public signatures from Maven/Gradle caches and Python site-packages.
 - **Local First:** All embeddings and data stay on your machine in a high-performance DuckDB VSS index.
 
@@ -50,6 +50,8 @@ In 2026, AI coding agents are limited by stale training data. They hallucinate l
 ### Installation
 ```bash
 pip install agent-coderag
+# Install tree-sitter grammars for your languages on-demand
+pip install tree-sitter-python tree-sitter-javascript
 ```
 
 ### Initial Setup
@@ -67,7 +69,7 @@ agent-coderag config --url "https://api.deepseek.com" --key "your-api-key" --mod
 
 ### Offline Mode (No Provider)
 If you don't configure an LLM provider, agent-coderag works in **100% Offline Mode**:
-- **Parsing & API Discovery:** Still works perfectly using local AST engines and javap.
+- **Parsing & API Discovery:** Still works perfectly using local Tree-Sitter grammars and javap.
 - **Search:** Remains fast and accurate.
 - **Distillation:** Instead of AI-generated summaries, the system uses code signatures and entity names as fallback metadata. No data ever leaves your machine.
 

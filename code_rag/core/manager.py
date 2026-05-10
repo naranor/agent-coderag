@@ -51,7 +51,9 @@ class CodeRAGManager:
 
             if should_distill:
                 async with self.semaphore:
-                    logger.info("Distilling summary for %s...", unit.id)
+                    logger.info(
+                        "Distilling summary for %s in %s...", unit.name, unit.path
+                    )
                     try:
                         unit.summary = await self.intelligence.summarize(
                             raw_code, unit.name

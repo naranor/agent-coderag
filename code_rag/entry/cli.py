@@ -21,6 +21,7 @@ from ..parsers.multi_parser import MultiParser  # noqa: E402
 from ..intelligence.embedder import Embedder, get_default_model_dir  # noqa: E402
 from ..intelligence.distiller import Distiller, DistillerConfig  # noqa: E402
 from ..discovery.dependency import extract_library_api  # noqa: E402
+from ..parsers.languages import EXTENSION_TO_LANGUAGE  # noqa: E402
 # pylint: enable=wrong-import-position
 
 # Setup basic logging - default to WARNING for clean output
@@ -85,14 +86,12 @@ def should_index(path: Path, ignore_spec: Optional[pathspec.PathSpec] = None) ->
     if ignore_spec and ignore_spec.match_file(path_str):
         return False
 
-    return path.suffix in {".py", ".java"}
+    return path.suffix.lower() in EXTENSION_TO_LANGUAGE
 
 
 async def sync_cmd(args):
     manager = get_manager(args.db, args.onnx, args.verbose)
     ignore_spec = load_ignore_patterns()
-
-    extensions = ("*.py", "*.java")
 
     if args.path:
         target_path = Path(args.path)
@@ -100,25 +99,21 @@ async def sync_cmd(args):
             if should_index(target_path, ignore_spec):
                 await manager.sync_file(str(target_path), force_distill=args.force)
         else:
-            paths = []
-            for ext in extensions:
-                paths.extend(
-                    [
-                        str(p)
-                        for p in target_path.rglob(ext)
-                        if should_index(p, ignore_spec)
-                    ]
-                )
+            paths = [
+                str(p)
+                for p in target_path.rglob("*")
+                if p.is_file() and should_index(p, ignore_spec)
+            ]
 
             if args.verbose:
                 logger.info("Indexing %d files...", len(paths))
             await manager.sync_project(paths, force_distill=args.force)
     elif args.all:
-        paths = []
-        for ext in extensions:
-            paths.extend(
-                [str(p) for p in Path(".").rglob(ext) if should_index(p, ignore_spec)]
-            )
+        paths = [
+            str(p)
+            for p in Path(".").rglob("*")
+            if p.is_file() and should_index(p, ignore_spec)
+        ]
 
         if args.verbose:
             logger.info("Indexing %d files...", len(paths))
