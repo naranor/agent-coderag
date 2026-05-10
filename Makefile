@@ -10,7 +10,7 @@ install:
 	.venv/Scripts/pre-commit.exe install
 
 test:
-	$(PYTHON) -m pytest --verbose
+	$(PYTHON) -m pytest --verbose --cov --cov-branch --cov-report=xml
 
 lint:
 	$(PYTHON) -m prospector code_rag --profile .prospector.yaml --with-tool mypy --with-tool bandit

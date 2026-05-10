@@ -33,14 +33,18 @@ jobs:
         
     - name: Run unit tests with coverage
       run: |
-        pytest tests/ --cov=code_rag --cov-report=term-missing --cov-report=xml
+        pytest tests/ --cov --cov-branch --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
         
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
-        fail_ci_if_error: false
+
+    - name: Upload test results to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/test-results-action@v1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
 
   lint:
     runs-on: ubuntu-latest
