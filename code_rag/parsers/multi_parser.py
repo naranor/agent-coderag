@@ -1,39 +1,31 @@
 import os
 import logging
-from typing import List, Dict
+from typing import List
 from ..core.interfaces import IParser
 from ..core.models import KnowledgeUnit
-from .ast_index import AstIndexParser
+from .tree_sitter import TreeSitterParser
+from .languages import EXTENSION_TO_LANGUAGE
 
 logger = logging.getLogger(__name__)
 
 
 class MultiParser(IParser):
     """
-    Delegates parsing to specific parsers based on file extension.
+    Delegates parsing to TreeSitterParser for all supported languages.
     """
 
     def __init__(self) -> None:
-        self.parsers: Dict[str, IParser] = {".py": AstIndexParser()}
-
-        # Try to load JavaParser if javalang is available
-        try:
-            from .java_parser import JavaParser  # pylint: disable=import-outside-toplevel
-
-            self.parsers[".java"] = JavaParser()
-            logger.info("Java support enabled.")
-        except ImportError:
-            logger.warning("javalang not found. Java support disabled.")
+        self.tree_sitter_parser = TreeSitterParser()
 
     async def distill_file(self, file_path: str) -> List[KnowledgeUnit]:
         """
-        Parses a file using the appropriate parser for its extension.
+        Parses a file using TreeSitterParser if the extension is supported.
         """
         _, ext = os.path.splitext(file_path)
-        parser = self.parsers.get(ext)
+        ext = ext.lower()
 
-        if not parser:
-            logger.debug("No parser for extension %s", ext)
-            return []
+        if ext in EXTENSION_TO_LANGUAGE:
+            return await self.tree_sitter_parser.distill_file(file_path)
 
-        return await parser.distill_file(file_path)
+        logger.debug("No parser for extension %s", ext)
+        return []
