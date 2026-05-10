@@ -22,3 +22,21 @@ repos:
     -   id: mypy
         additional_dependencies: [pydantic, types-requests, numpy, types-aiofiles]
         args: [--ignore-missing-imports]
+
+-   repo: local
+    hooks:
+    -   id: prospector
+        name: prospector
+        entry: prospector
+        language: system
+        types: [python]
+        args: [code_rag, --profile, .prospector.yaml, --with-tool, mypy, --with-tool, bandit]
+        pass_filenames: false
+
+    -   id: vulture
+        name: vulture
+        entry: vulture
+        language: system
+        types: [python]
+        args: [code_rag, --min-confidence, "80", --exclude, code_rag/core/models.py]
+        pass_filenames: false
