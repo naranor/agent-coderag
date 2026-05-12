@@ -1,8 +1,13 @@
 import logging
 import asyncio
+import os
+import shutil
+import subprocess  # nosec
+from pathlib import Path
 from typing import List
 from .interfaces import IStorage, IParser, IIntelligence
 from .models import KnowledgeUnit
+from ..discovery.manager import DiscoveryManager
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +28,73 @@ class CodeRAGManager:
         self.parser = parser
         self.intelligence = intelligence
         self.semaphore = asyncio.Semaphore(max_concurrency)
+        self.discovery = DiscoveryManager(storage=storage)
+
+    async def sync_dependencies(self, project_path: str):
+        """
+        Resolves project dependencies (Maven/Gradle) and caches JAR paths.
+        """
+        root = Path(project_path)
+        pom_xml = root / "pom.xml"
+        gradle_files = list(root.glob("build.gradle*"))
+
+        if pom_xml.exists():
+            await self._sync_maven(root)
+        elif gradle_files:
+            await self._sync_gradle()
+
+    async def _sync_maven(self, root: Path):
+        mvn_bin = shutil.which("mvn")
+        if not mvn_bin:
+            logger.warning("mvn not found, skipping dependency sync")
+            return
+
+        cp_file = root / ".coderag_cp.txt"
+        logger.info("Resolving Maven dependencies...")
+        try:
+            # -Dmdep.outputFile is relative to project root or absolute
+            cmd = [
+                mvn_bin,
+                "dependency:build-classpath",
+                f"-Dmdep.outputFile={cp_file.name}",
+            ]
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=str(root),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )  # nosec
+            _, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                logger.error("mvn failed: %s", stderr.decode())
+                return
+
+            if cp_file.exists():
+                with open(cp_file, "r", encoding="utf-8") as f:
+                    classpath = f.read().strip()
+                cp_file.unlink()
+
+                for jar_path in classpath.split(os.pathsep):
+                    if not jar_path:
+                        continue
+                    # Extract lib name from jar name (e.g. spring-core-6.1.1.jar -> spring-core)
+                    jar_name = Path(jar_path).stem
+                    # Naive version stripping: everything after last '-' if it starts with digit
+                    parts = jar_name.split("-")
+                    if len(parts) > 1 and parts[-1][0].isdigit():
+                        lib_name = "-".join(parts[:-1])
+                    else:
+                        lib_name = jar_name
+
+                    await self.storage.set_dependency_path(lib_name, jar_path)
+                logger.info("Maven dependencies cached.")
+        except Exception as e:
+            logger.error("Failed to sync Maven dependencies: %s", e)
+
+    async def _sync_gradle(self):
+        # TODO: Implement Gradle resolution
+        logger.warning("Gradle dependency sync not yet implemented")
 
     async def sync_file(self, file_path: str, force_distill: bool = False):
         """

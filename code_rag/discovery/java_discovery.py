@@ -49,7 +49,7 @@ def find_java_library_jar(library_name: str) -> List[Path]:
     return found_jars
 
 
-async def extract_java_api(library_name: str) -> str:
+async def extract_java_api(library_name: str, jar_path: Optional[str] = None) -> str:
     """
     Extracts Java API using javap on found JAR files.
     """
@@ -57,12 +57,17 @@ async def extract_java_api(library_name: str) -> str:
     if not javap_bin:
         return "Error: 'javap' not found. Please ensure JDK is installed and in PATH."
 
-    jars = find_java_library_jar(library_name)
-    if not jars:
-        return f"Error: Could not find JAR files for library '{library_name}' in local Maven/Gradle caches."
-
-    # Take the most recent or highest version (simplification)
-    target_jar = sorted(jars)[-1]
+    if jar_path:
+        target_jar = Path(jar_path)
+    else:
+        jars = find_java_library_jar(library_name)
+        if not jars:
+            return (
+                f"Error: Could not find JAR files for library '{library_name}' "
+                "in local Maven/Gradle caches."
+            )
+        # Take the most recent or highest version (simplification)
+        target_jar = sorted(jars)[-1]
 
     try:
         # 1. List classes in JAR

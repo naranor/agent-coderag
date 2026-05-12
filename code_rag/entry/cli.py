@@ -93,6 +93,9 @@ async def sync_cmd(args):
     manager = get_manager(args.db, args.onnx, args.verbose)
     ignore_spec = load_ignore_patterns()
 
+    # Task 2: Sync dependencies before indexing
+    await manager.sync_dependencies(args.path or ".")
+
     if args.path:
         target_path = Path(args.path)
         if target_path.is_file():
