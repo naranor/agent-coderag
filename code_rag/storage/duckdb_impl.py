@@ -70,7 +70,29 @@ class DuckDBStorage(IStorage):
                 PRIMARY KEY (from_id, to_id, type)
             )
         """)
+
+        # Dependencies table for API Discovery
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS dependencies (
+                name VARCHAR PRIMARY KEY,
+                path VARCHAR
+            )
+        """)
         logger.info("Storage initialized at %s", self.db_path)
+
+    async def set_dependency_path(self, lib_name: str, path: str) -> None:
+        """Caches the absolute path to a library's JAR/binary."""
+        self.conn.execute(
+            "INSERT OR REPLACE INTO dependencies (name, path) VALUES (?, ?)",
+            [lib_name, path],
+        )
+
+    async def get_dependency_path(self, lib_name: str) -> Optional[str]:
+        """Retrieves the cached path for a library."""
+        res = self.conn.execute(
+            "SELECT path FROM dependencies WHERE name = ?", [lib_name]
+        ).fetchone()
+        return res[0] if res else None
 
     async def upsert_unit(self, unit: KnowledgeUnit):
         """Inserts or updates a knowledge unit and its embedding."""

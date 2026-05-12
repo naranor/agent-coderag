@@ -4,6 +4,9 @@ from typing import Dict, Optional
 from .providers.base import IDiscoveryProvider
 from .providers.python import PythonDiscoveryProvider
 from .providers.java import JavaDiscoveryProvider
+from .providers.go import GoDiscoveryProvider
+
+from ..core.interfaces import IStorage
 
 logger = logging.getLogger(__name__)
 
@@ -11,11 +14,13 @@ logger = logging.getLogger(__name__)
 class DiscoveryManager:
     """Dispatches discovery requests to language-specific providers."""
 
-    def __init__(self) -> None:
+    def __init__(self, storage: Optional[IStorage] = None) -> None:
         self._providers: Dict[str, IDiscoveryProvider] = {}
+        self.storage = storage
         # Auto-register default providers
         self.register_provider("python", PythonDiscoveryProvider())
-        self.register_provider("java", JavaDiscoveryProvider())
+        self.register_provider("java", JavaDiscoveryProvider(storage=storage))
+        self.register_provider("go", GoDiscoveryProvider())
 
     def register_provider(self, language: str, provider: IDiscoveryProvider):
         """Registers a new discovery provider."""

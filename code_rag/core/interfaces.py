@@ -36,6 +36,14 @@ class IStorage(ABC):
     ) -> List[Relation]:
         pass
 
+    @abstractmethod
+    async def set_dependency_path(self, lib_name: str, path: str) -> None:
+        """Caches the absolute path to a library's JAR/binary."""
+
+    @abstractmethod
+    async def get_dependency_path(self, lib_name: str) -> Optional[str]:
+        """Retrieves the cached path for a library."""
+
 
 class IIntelligence(ABC):
     """Interface for LLM-based analysis (distillation, embeddings)."""

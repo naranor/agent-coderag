@@ -1,4 +1,5 @@
 import pytest
+from typing import Optional
 
 from code_rag.core.interfaces import IParser, IStorage, IIntelligence
 from code_rag.core.models import KnowledgeUnit, UnitKind
@@ -61,6 +62,12 @@ class TestIStorage:
 
             async def get_relations(self, unit_id: str, direction: str = "out"):
                 return []
+
+            async def set_dependency_path(self, lib_name: str, path: str) -> None:
+                pass
+
+            async def get_dependency_path(self, lib_name: str) -> Optional[str]:
+                return None
 
         storage = MockStorage()
         assert isinstance(storage, IStorage)
