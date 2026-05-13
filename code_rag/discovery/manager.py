@@ -5,6 +5,7 @@ from .providers.base import IDiscoveryProvider
 from .providers.python import PythonDiscoveryProvider
 from .providers.java import JavaDiscoveryProvider
 from .providers.go import GoDiscoveryProvider
+from .providers.javascript import JavaScriptDiscoveryProvider
 
 from ..core.interfaces import IStorage
 
@@ -21,6 +22,8 @@ class DiscoveryManager:
         self.register_provider("python", PythonDiscoveryProvider())
         self.register_provider("java", JavaDiscoveryProvider(storage=storage))
         self.register_provider("go", GoDiscoveryProvider())
+        self.register_provider("javascript", JavaScriptDiscoveryProvider())
+        self.register_provider("typescript", JavaScriptDiscoveryProvider())
 
     def register_provider(self, language: str, provider: IDiscoveryProvider):
         """Registers a new discovery provider."""
