@@ -35,6 +35,8 @@ dependencies = [
     "aiofiles",
     "pathspec",
     "tree-sitter",
+    "dnfile",
+    "defusedxml",
 ]
 
 [project.optional-dependencies]

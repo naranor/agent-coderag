@@ -20,7 +20,6 @@ from ..storage.duckdb_impl import DuckDBStorage  # noqa: E402
 from ..parsers.multi_parser import MultiParser  # noqa: E402
 from ..intelligence.embedder import Embedder, get_default_model_dir  # noqa: E402
 from ..intelligence.distiller import Distiller, DistillerConfig  # noqa: E402
-from ..discovery.dependency import extract_library_api  # noqa: E402
 from ..parsers.languages import EXTENSION_TO_LANGUAGE  # noqa: E402
 # pylint: enable=wrong-import-position
 
@@ -149,7 +148,29 @@ async def search_cmd(args):
 
 
 async def api_cmd(args):
-    output = await extract_library_api(args.library)
+    manager = get_manager(args.db, args.onnx, args.verbose)
+
+    language = args.lang
+    if not language:
+        # Smart hinting: try to guess from project context
+        if Path("Cargo.toml").exists():
+            language = "rust"
+        elif Path("package.json").exists():
+            language = "typescript"
+        elif Path("go.mod").exists():
+            language = "go"
+        elif Path("pom.xml").exists() or list(Path(".").glob("build.gradle*")):
+            language = "java"
+        elif list(Path(".").glob("*.py")):
+            language = "python"
+        else:
+            print("Error: Language not specified and could not be auto-detected.")
+            print(
+                "Please use --lang <language> (e.g., python, java, go, typescript, rust)"
+            )
+            return
+
+    output = await manager.discovery.extract_api(args.library, language=language)
     if args.json:
         print(json.dumps({"api": output}))
     else:
@@ -246,6 +267,7 @@ def main():
 
     api_p = subparsers.add_parser("api", help="Discover library API")
     api_p.add_argument("library", help="Library name")
+    api_p.add_argument("--lang", help="Language (python, java, go, typescript, rust)")
 
     args = parser.parse_args()
 
