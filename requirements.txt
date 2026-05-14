@@ -8,3 +8,5 @@ httpx
 aiofiles
 pathspec
 tree-sitter
+dnfile
+defusedxml

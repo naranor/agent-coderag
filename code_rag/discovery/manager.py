@@ -7,6 +7,7 @@ from .providers.java import JavaDiscoveryProvider
 from .providers.go import GoDiscoveryProvider
 from .providers.javascript import JavaScriptDiscoveryProvider
 from .providers.rust import RustDiscoveryProvider
+from .providers.csharp import CSharpDiscoveryProvider
 
 from ..core.interfaces import IStorage
 
@@ -26,36 +27,27 @@ class DiscoveryManager:
         self.register_provider("javascript", JavaScriptDiscoveryProvider())
         self.register_provider("typescript", JavaScriptDiscoveryProvider())
         self.register_provider("rust", RustDiscoveryProvider())
+        self.register_provider("csharp", CSharpDiscoveryProvider())
+        self.register_provider("c_sharp", CSharpDiscoveryProvider())
 
     def register_provider(self, language: str, provider: IDiscoveryProvider):
         """Registers a new discovery provider."""
         self._providers[language.lower()] = provider
         logger.debug("Registered discovery provider for %s", language)
 
-    async def extract_api(
-        self, library_name: str, language: Optional[str] = None
-    ) -> str:
+    async def extract_api(self, library_name: str, language: str) -> str:
         """
-        Extracts API for a library.
-        If language is not provided, it tries all registered providers.
+        Extracts API for a library using the specified language provider.
         """
-        if language:
-            provider = self._providers.get(language.lower())
-            if provider:
-                return await provider.extract_api(library_name)
-            return f"Error: No discovery provider registered for language '{language}'"
-
-        # Try all providers sequentially if no language specified
-        # This maintains backward compatibility with the old dependency.py behavior
-        results = []
-        for lang, provider in self._providers.items():
+        provider = self._providers.get(language.lower())
+        if provider:
             logger.info(
-                "Attempting discovery for '%s' using %s provider", library_name, lang
+                "Extracting API for '%s' using %s provider", library_name, language
             )
-            result = await provider.extract_api(library_name)
-            # Basic heuristic: if it doesn't start with 'Failed' or 'Error', it probably worked
-            if not result.startswith("Failed") and not result.startswith("Error"):
-                return result
-            results.append(f"[{lang}] {result}")
+            return await provider.extract_api(library_name)
 
-        return "\n".join(results) or f"Error: Could not find API for '{library_name}'"
+        supported = ", ".join(self._providers.keys())
+        return (
+            f"Error: No discovery provider registered for language '{language}'. "
+            f"Supported: {supported}"
+        )
