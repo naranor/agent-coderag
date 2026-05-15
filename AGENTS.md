@@ -16,7 +16,8 @@ agent-coderag --json search "logic for data persistence" --limit 3
 
 ### API Discovery
 ```bash
-agent-coderag api litellm
+# Recommended: specify language
+agent-coderag api litellm --lang python
 ```
 
 ## Integration Tips

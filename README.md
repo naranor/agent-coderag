@@ -40,7 +40,7 @@ In 2026, AI coding agents are limited by stale training data. They hallucinate l
 - **Instant Startup:** Built on onnxruntime and Rust-based tokenizers. Zero PyTorch overhead.
 - **Context Compression:** Replace 10,000 lines of raw code with a 200-token semantic summary.
 - **Universal Tree-Sitter Parser:** Supports 25+ languages (Python, JS/TS, Rust, Java, C++, Go, Ruby, etc.) with high precision.
-- **API Discovery:** On-the-fly extraction of public signatures from Maven/Gradle caches and Python site-packages.
+- **API Discovery:** On-the-fly extraction of public signatures for 6 core ecosystems (Python, Java, Go, TypeScript, Rust, C#) with build-system awareness.
 - **Local First:** All embeddings and data stay on your machine in a high-performance DuckDB VSS index.
 
 ---
@@ -81,6 +81,31 @@ agent-coderag sync --all
 # Perform a semantic search
 agent-coderag search "how does the authentication middleware work?"
 ```
+
+### API Discovery
+Verify external library signatures without leaving the CLI:
+```bash
+# Explicit language selection (Recommended for multi-language repos)
+agent-coderag api requests --lang python
+agent-coderag api lodash --lang typescript
+agent-coderag api serde --lang rust
+
+# Built-in auto-detection for common project types (Cargo.toml, package.json, etc.)
+agent-coderag api fmt
+```
+
+---
+
+## Supported Ecosystems (Discovery)
+
+| Language | Method | Discovery Source |
+| :--- | :--- | :--- |
+| **Python** | 3-Stage Probe | `.pyi` stubs, static source, or runtime `inspect` |
+| **Java** | Bytecode Reflection | JARs resolved via Maven (`pom.xml`) or Gradle |
+| **Go** | Standard Tooling | Native `go doc -all` integration |
+| **TypeScript/JS** | Declaration Maps | `.d.ts` files from `node_modules` or `@types` |
+| **Rust** | Registry Analysis | Source code from Cargo registry via `cargo metadata` |
+| **C#** | Assembly Metadata | DLL metadata via `dnfile` and XML documentation |
 
 ---
 
