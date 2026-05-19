@@ -2,8 +2,11 @@ import os
 import subprocess  # nosec
 import logging
 import shutil
+import re
 from pathlib import Path
 from typing import List, Optional
+from ..core.utils import validate_path
+from ..core.constants import DEFAULT_SUBPROCESS_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +14,11 @@ logger = logging.getLogger(__name__)
 def find_javap() -> Optional[str]:
     """Finds the javap executable."""
     return shutil.which("javap")
+
+
+def _parse_version(path: Path):
+    parts = re.findall(r"\d+", path.name)
+    return tuple(map(int, parts))
 
 
 def find_java_library_jar(library_name: str) -> List[Path]:
@@ -66,8 +74,8 @@ async def extract_java_api(library_name: str, jar_path: Optional[str] = None) ->
                 f"Error: Could not find JAR files for library '{library_name}' "
                 "in local Maven/Gradle caches."
             )
-        # Take the most recent or highest version (simplification)
-        target_jar = sorted(jars)[-1]
+        # Take the most recent or highest version using semantic-aware sorting
+        target_jar = sorted(jars, key=_parse_version)[-1]
 
     try:
         # 1. List classes in JAR
@@ -75,11 +83,15 @@ async def extract_java_api(library_name: str, jar_path: Optional[str] = None) ->
         if not jar_bin:
             return f"Error: 'jar' utility not found. Cannot list classes in {target_jar.name}"
 
+        # Validate target_jar path
+        target_jar = validate_path(target_jar)
+
         result = subprocess.run(
             [jar_bin, "-tf", str(target_jar)],
             capture_output=True,
             text=True,
             check=False,
+            timeout=DEFAULT_SUBPROCESS_TIMEOUT,
         )  # nosec
         classes = [
             line.replace("/", ".").replace(".class", "")
@@ -96,11 +108,16 @@ async def extract_java_api(library_name: str, jar_path: Optional[str] = None) ->
 
         # Limit to top 20 classes to avoid massive output
         for cls in classes[:20]:
+            # Basic validation of class name string (prevent injection)
+            if not all(c.isalnum() or c in "._$" for c in cls):
+                continue
+
             res = subprocess.run(
                 [javap_bin, "-public", "-classpath", str(target_jar), cls],
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=DEFAULT_SUBPROCESS_TIMEOUT,
             )  # nosec
             if res.returncode == 0:
                 # Basic cleaning of javap output

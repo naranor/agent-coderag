@@ -44,6 +44,10 @@ class IStorage(ABC):
     async def get_dependency_path(self, lib_name: str) -> Optional[str]:
         """Retrieves the cached path for a library."""
 
+    @abstractmethod
+    async def close(self) -> None:
+        """Closes the storage connection and releases resources."""
+
 
 class IIntelligence(ABC):
     """Interface for LLM-based analysis (distillation, embeddings)."""

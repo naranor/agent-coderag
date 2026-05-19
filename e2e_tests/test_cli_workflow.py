@@ -131,6 +131,6 @@ def test_e2e_json_output():
 
 def test_e2e_api_extraction():
     """Verify the API extraction command."""
-    api_res = run_cli("api", "json")
+    api_res = run_cli("api", "json", "--lang", "python")
     assert api_res.returncode == 0
     assert "Public API for Python Library 'json'" in api_res.stdout

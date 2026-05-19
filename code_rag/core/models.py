@@ -33,6 +33,7 @@ class KnowledgeUnit(BaseModel):
     name: str
     path: str
     signature: Optional[str] = None
+    docstring: Optional[str] = None
     summary: Optional[str] = None
     code_hash: str
     tags: List[str] = Field(default_factory=list)

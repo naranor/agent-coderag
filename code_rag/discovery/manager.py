@@ -10,6 +10,7 @@ from .providers.rust import RustDiscoveryProvider
 from .providers.csharp import CSharpDiscoveryProvider
 
 from ..core.interfaces import IStorage
+from ..core.exceptions import DiscoveryError
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +41,19 @@ class DiscoveryManager:
         Extracts API for a library using the specified language provider.
         """
         provider = self._providers.get(language.lower())
-        if provider:
-            logger.info(
-                "Extracting API for '%s' using %s provider", library_name, language
+        if not provider:
+            supported = ", ".join(self._providers.keys())
+            raise DiscoveryError(
+                f"No discovery provider registered for language '{language}'. "
+                f"Supported: {supported}"
             )
-            return await provider.extract_api(library_name)
 
-        supported = ", ".join(self._providers.keys())
-        return (
-            f"Error: No discovery provider registered for language '{language}'. "
-            f"Supported: {supported}"
-        )
+        logger.info("Extracting API for '%s' using %s provider", library_name, language)
+        try:
+            return await provider.extract_api(library_name)
+        except Exception as e:
+            if isinstance(e, DiscoveryError):
+                raise
+            raise DiscoveryError(
+                f"API extraction failed for '{library_name}' ({language}): {e}"
+            ) from e

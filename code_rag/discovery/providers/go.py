@@ -2,6 +2,7 @@ import asyncio
 import logging
 import shutil
 from .base import IDiscoveryProvider
+from ...core.constants import DEFAULT_SUBPROCESS_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,9 @@ class GoDiscoveryProvider(IDiscoveryProvider):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await process.communicate()
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=DEFAULT_SUBPROCESS_TIMEOUT
+            )
 
             if process.returncode != 0:
                 err_msg = stderr.decode().strip()

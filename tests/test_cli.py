@@ -64,6 +64,8 @@ class TestCLISync:
         """Test sync command with JSON output."""
         mock_manager = MagicMock()
         mock_manager.sync_project = AsyncMock()
+        mock_manager.sync_dependencies = AsyncMock()
+        mock_manager.close = AsyncMock()
 
         with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
             args = argparse.Namespace(
@@ -84,13 +86,13 @@ class TestCLISync:
             finally:
                 sys.stdout = old_stdout
 
-            # captured is removed to satisfy linter
-
     @pytest.mark.asyncio
     async def test_sync_cmd_file(self, tmp_path):
         """Test sync command for a single file."""
         mock_manager = MagicMock()
         mock_manager.sync_file = AsyncMock()
+        mock_manager.sync_dependencies = AsyncMock()
+        mock_manager.close = AsyncMock()
 
         test_file = tmp_path / "test.py"
         test_file.write_text("def test(): pass")
@@ -132,6 +134,7 @@ class TestCLISearch:
                 )
             ]
         )
+        mock_manager.close = AsyncMock()
 
         with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
             args = argparse.Namespace(
@@ -156,6 +159,7 @@ class TestCLISearch:
         """Test search with no results."""
         mock_manager = MagicMock()
         mock_manager.search = AsyncMock(return_value=[])
+        mock_manager.close = AsyncMock()
 
         with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
             args = argparse.Namespace(
@@ -193,6 +197,7 @@ class TestCLISearch:
                 )
             ]
         )
+        mock_manager.close = AsyncMock()
 
         with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
             args = argparse.Namespace(
@@ -214,14 +219,19 @@ class TestCLIApi:
     @pytest.mark.asyncio
     async def test_api_cmd_success(self):
         """Test API discovery command."""
-        mock_output = {"functions": ["func1", "func2"]}
+        mock_manager = MagicMock()
+        mock_manager.discovery.extract_api = AsyncMock(return_value="Public API...")
+        mock_manager.close = AsyncMock()
 
-        with patch(
-            "code_rag.entry.cli.extract_library_api", new_callable=AsyncMock
-        ) as mock_extract:
-            mock_extract.return_value = mock_output
-
-            args = argparse.Namespace(library="pydantic", json=False)
+        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+            args = argparse.Namespace(
+                library="pydantic",
+                json=False,
+                lang="python",
+                verbose=False,
+                db="test.db",
+                onnx=None,
+            )
 
             old_stdout = sys.stdout
             sys.stdout = StringIO()
@@ -234,14 +244,19 @@ class TestCLIApi:
     @pytest.mark.asyncio
     async def test_api_cmd_json(self):
         """Test API command with JSON output."""
-        mock_output = {"functions": ["func1"]}
+        mock_manager = MagicMock()
+        mock_manager.discovery.extract_api = AsyncMock(return_value="Public API...")
+        mock_manager.close = AsyncMock()
 
-        with patch(
-            "code_rag.entry.cli.extract_library_api", new_callable=AsyncMock
-        ) as mock_extract:
-            mock_extract.return_value = mock_output
-
-            args = argparse.Namespace(library="requests", json=True)
+        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+            args = argparse.Namespace(
+                library="requests",
+                json=True,
+                lang="python",
+                verbose=False,
+                db="test.db",
+                onnx=None,
+            )
 
             old_stdout = sys.stdout
             sys.stdout = StringIO()

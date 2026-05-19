@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from .base import IDiscoveryProvider
 from ...parsers.tree_sitter import TreeSitterParser
+from ...core.exceptions import DiscoveryError
 
 logger = logging.getLogger(__name__)
 
@@ -24,28 +25,37 @@ class PythonDiscoveryProvider(IDiscoveryProvider):
         2. Static analysis of .py files (if found)
         3. Runtime introspection (fallback)
         """
-        # 1. Find the library path without importing
-        lib_root = self._find_library_root(library_name)
+        try:
+            # 1. Find the library path without importing
+            lib_root = self._find_library_root(library_name)
 
-        if lib_root:
-            # Stage 1: Try .pyi files
-            stubs = list(lib_root.rglob("*.pyi"))
-            if stubs:
-                logger.info("Found %d type stubs for '%s'", len(stubs), library_name)
-                return await self._extract_static(library_name, stubs)
+            if lib_root:
+                # Stage 1: Try .pyi files
+                stubs = list(lib_root.rglob("*.pyi"))
+                if stubs:
+                    logger.info(
+                        "Found %d type stubs for '%s'", len(stubs), library_name
+                    )
+                    return await self._extract_static(library_name, stubs)
 
-            # Stage 2: Try .py files (top-level)
-            # We look for __init__.py and files in the root
-            sources = list(lib_root.glob("*.py"))
-            if sources:
-                logger.info(
-                    "Performing static analysis on '%s' source files", library_name
-                )
-                return await self._extract_static(library_name, sources)
+                # Stage 2: Try .py files (top-level)
+                # We look for __init__.py and files in the root
+                sources = list(lib_root.glob("*.py"))
+                if sources:
+                    logger.info(
+                        "Performing static analysis on '%s' source files", library_name
+                    )
+                    return await self._extract_static(library_name, sources)
 
-        # Stage 3: Runtime Fallback
-        logger.info("Falling back to runtime introspection for '%s'", library_name)
-        return self._extract_runtime(library_name)
+            # Stage 3: Runtime Fallback
+            logger.info("Falling back to runtime introspection for '%s'", library_name)
+            return self._extract_runtime(library_name)
+        except Exception as e:
+            if isinstance(e, DiscoveryError):
+                raise
+            raise DiscoveryError(
+                f"Failed to extract Python API for '{library_name}': {e}"
+            ) from e
 
     def _find_library_root(self, lib_name: str) -> Optional[Path]:
         """Locates the package root without importing it."""

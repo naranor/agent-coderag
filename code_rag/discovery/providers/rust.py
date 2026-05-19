@@ -1,19 +1,22 @@
 import asyncio
 import json
 import logging
-import os
 import shutil
+import re
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Set
 
 from .base import IDiscoveryProvider
 from ...parsers.tree_sitter import TreeSitterParser
+from ...core.utils import find_directory_upwards, validate_path
+from ...core.constants import METADATA_FETCH_TIMEOUT
+from ...core.models import KnowledgeUnit
 
 logger = logging.getLogger(__name__)
 
 
 class RustDiscoveryProvider(IDiscoveryProvider):
-    """API discovery for Rust crates using cargo metadata and Tree-Sitter."""
+    """API discovery for Rust crates with recursive module traversal."""
 
     def __init__(self, parser: Optional[TreeSitterParser] = None):
         self.parser = parser or TreeSitterParser()
@@ -21,15 +24,19 @@ class RustDiscoveryProvider(IDiscoveryProvider):
 
     def _find_cargo(self) -> str:
         """Robustly finds the cargo executable."""
-        # Try standard paths first
         standard = shutil.which("cargo")
         if standard:
             return standard
 
-        # Try specific user path provided earlier
-        user_path = r"c:\Users\igbo0122\.cargo\bin\cargo.exe"
-        if os.path.exists(user_path):
-            return user_path
+        # Fallback to standard installation paths if not in PATH
+        home = Path.home()
+        common_paths = [
+            home / ".cargo" / "bin" / "cargo",
+            home / ".cargo" / "bin" / "cargo.exe",
+        ]
+        for p in common_paths:
+            if p.exists():
+                return str(p)
 
         return "cargo"  # Fallback to command name
 
@@ -37,7 +44,7 @@ class RustDiscoveryProvider(IDiscoveryProvider):
         """
         Extracts Rust API using:
         1. 'cargo metadata' to find crate source path
-        2. Static analysis of src/lib.rs or src/main.rs using Tree-Sitter
+        2. Recursive static analysis of src/lib.rs and submodules
         """
         # 1. Find crate source using cargo metadata
         crate_root = await self._find_crate_root(library_name)
@@ -52,43 +59,114 @@ class RustDiscoveryProvider(IDiscoveryProvider):
             return f"Error: Could not find entry points for crate '{library_name}' in {crate_root}"
 
         output = [f"# Public API for Rust Crate '{library_name}':"]
+        visited_files: Set[Path] = set()
+        all_units: List[KnowledgeUnit] = []
 
+        # Start recursive traversal
         for file_path in target_files:
-            try:
-                units = await self.parser.distill_file(str(file_path))
-                if units:
-                    output.append(f"\n## From {file_path.name}:")
-                    for unit in units:
-                        # Only show public entities (Tree-Sitter signatures usually include 'pub')
-                        if unit.signature and "pub" in unit.signature:
-                            output.append(
-                                f"- **{unit.kind.value.capitalize()}: {unit.name}**"
-                            )
-                            output.append(f"  `{unit.signature}`")
-            except Exception as e:
-                logger.warning("Failed to parse %s: %s", file_path, e)
+            await self._recursive_extract(file_path, visited_files, all_units, depth=0)
 
-        return "\n".join(output[:100])
+        if not all_units:
+            return f"No public entities found for crate '{library_name}'."
+
+        # Group units by file
+        units_by_file = {}
+        for unit in all_units:
+            f_name = Path(unit.path).name
+            if f_name not in units_by_file:
+                units_by_file[f_name] = []
+            units_by_file[f_name].append(unit)
+
+        for f_name, units in units_by_file.items():
+            output.append(f"\n## From {f_name}:")
+            for unit in units[:20]:
+                if unit.kind == "module":
+                    continue
+                output.append(f"- **{unit.kind.value.capitalize()}: {unit.name}**")
+                if unit.docstring:
+                    first_line = unit.docstring.splitlines()[0]
+                    output.append(f"  *({first_line})*")
+                output.append(f"  `{unit.signature}`")
+
+        return "\n".join(output[:150])
+
+    async def _recursive_extract(
+        self,
+        file_path: Path,
+        visited: Set[Path],
+        results: List[KnowledgeUnit],
+        depth: int,
+    ):
+        """Recursively parses modules."""
+        max_depth = 3
+        if depth > max_depth or file_path in visited or not file_path.exists():
+            return
+
+        visited.add(file_path)
+        try:
+            units = await self.parser.distill_file(str(file_path))
+            # Filter only public entities (usually have 'pub' in signature)
+            results.extend(
+                [
+                    u
+                    for u in units
+                    if u.kind != "module" and u.signature and "pub" in u.signature
+                ]
+            )
+
+            # Find submodules to follow
+            for unit in units:
+                target_path = self._parse_submodule(file_path, unit)
+                if target_path:
+                    await self._recursive_extract(
+                        target_path, visited, results, depth + 1
+                    )
+        except Exception as e:
+            logger.warning("Recursive Rust extraction failed for %s: %s", file_path, e)
+
+    def _parse_submodule(
+        self, current_file: Path, unit: KnowledgeUnit
+    ) -> Optional[Path]:
+        """Extracts and resolves a submodule target path from a module unit."""
+        if unit.kind == "module" and unit.metadata.get("node_type") == "mod_item":
+            # Check if it's a mod without body: 'pub mod name;'
+            raw = unit.metadata.get("raw_code", "")
+            if ";" in raw and "{" not in raw:
+                # Extract module name
+                match = re.search(r"mod\s+([a-zA-Z0-9_]+)", raw)
+                if match:
+                    mod_name = match.group(1)
+                    return self._resolve_mod_path(current_file.parent, mod_name)
+        return None
+
+    def _resolve_mod_path(self, base_dir: Path, mod_name: str) -> Optional[Path]:
+        """Resolves Rust module file path."""
+        # 1. name.rs
+        p1 = base_dir / f"{mod_name}.rs"
+        if p1.exists():
+            return p1
+        # 2. name/mod.rs
+        p2 = base_dir / mod_name / "mod.rs"
+        if p2.exists():
+            return p2
+        return None
 
     async def _find_crate_root(self, crate_name: str) -> Optional[Path]:
         """Runs 'cargo metadata' to find the path of a dependency."""
-        manifest_dir = self._find_manifest_dir()
-        if not manifest_dir:
+        # Basic validation of crate name
+        if not all(c.isalnum() or c in "_-" for c in crate_name):
+            logger.warning("Invalid crate name: %s", crate_name)
+            return None
+
+        manifest_path = find_directory_upwards(Path("."), "Cargo.toml")
+        if not manifest_path:
             logger.debug("Cargo.toml not found in project hierarchy")
             return None
 
+        manifest_dir = validate_path(manifest_path.parent)
+
         try:
-            process = await asyncio.create_subprocess_exec(
-                self._cargo_bin,
-                "metadata",
-                "--format-version",
-                "1",
-                "--no-deps",  # Speed up if we only care about direct workspace, but we usually want deps
-                cwd=str(manifest_dir),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            # Wait, actually we NEED deps to find library paths. Removing --no-deps.
+            # We NEED deps to find library paths.
             process = await asyncio.create_subprocess_exec(
                 self._cargo_bin,
                 "metadata",
@@ -98,7 +176,9 @@ class RustDiscoveryProvider(IDiscoveryProvider):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await process.communicate()
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=METADATA_FETCH_TIMEOUT
+            )
 
             if process.returncode != 0:
                 logger.debug("cargo metadata failed: %s", stderr.decode())
@@ -115,15 +195,4 @@ class RustDiscoveryProvider(IDiscoveryProvider):
         except Exception as e:
             logger.debug("Error running cargo metadata: %s", e)
 
-        return None
-
-    def _find_manifest_dir(self) -> Optional[Path]:
-        """Locates Cargo.toml folder starting from current dir upwards."""
-        curr = Path(".").resolve()
-        for _ in range(5):
-            if (curr / "Cargo.toml").exists():
-                return curr
-            if curr.parent == curr:
-                break
-            curr = curr.parent
         return None

@@ -21,6 +21,7 @@ from ..parsers.multi_parser import MultiParser  # noqa: E402
 from ..intelligence.embedder import Embedder, get_default_model_dir  # noqa: E402
 from ..intelligence.distiller import Distiller, DistillerConfig  # noqa: E402
 from ..parsers.languages import EXTENSION_TO_LANGUAGE  # noqa: E402
+from ..core.utils import validate_path  # noqa: E402
 # pylint: enable=wrong-import-position
 
 # Setup basic logging - default to WARNING for clean output
@@ -32,6 +33,11 @@ def get_manager(db_path: str, onnx_path: Optional[str] = None, verbose: bool = F
     """Initializes the RAG manager."""
     if verbose:
         logging.getLogger().setLevel(logging.INFO)
+
+    # Validate paths to prevent path traversal
+    db_path = str(validate_path(db_path))
+    if onnx_path:
+        onnx_path = str(validate_path(onnx_path))
 
     config = DistillerConfig.load()
     config.api_base = os.getenv("AGENT_PROXY_URL", config.api_base)
@@ -89,104 +95,131 @@ def should_index(path: Path, ignore_spec: Optional[pathspec.PathSpec] = None) ->
 
 
 async def sync_cmd(args):
-    manager = get_manager(args.db, args.onnx, args.verbose)
-    ignore_spec = load_ignore_patterns()
-
-    # Task 2: Sync dependencies before indexing
-    await manager.sync_dependencies(args.path or ".")
-
+    # Validate input path
     if args.path:
-        target_path = Path(args.path)
-        if target_path.is_file():
-            if should_index(target_path, ignore_spec):
-                await manager.sync_file(str(target_path), force_distill=args.force)
-        else:
+        args.path = str(validate_path(args.path))
+
+    manager = get_manager(args.db, args.onnx, args.verbose)
+    try:
+        ignore_spec = load_ignore_patterns()
+
+        # Task 2: Sync dependencies before indexing
+        await manager.sync_dependencies(args.path or ".")
+
+        if args.path:
+            target_path = Path(args.path)
+            if target_path.is_file():
+                if should_index(target_path, ignore_spec):
+                    await manager.sync_file(str(target_path), force_distill=args.force)
+            else:
+                paths = [
+                    str(p)
+                    for p in target_path.rglob("*")
+                    if p.is_file() and should_index(p, ignore_spec)
+                ]
+
+                if args.verbose:
+                    logger.info("Indexing %d files...", len(paths))
+                await manager.sync_project(paths, force_distill=args.force)
+        elif args.all:
             paths = [
                 str(p)
-                for p in target_path.rglob("*")
+                for p in Path(".").rglob("*")
                 if p.is_file() and should_index(p, ignore_spec)
             ]
 
             if args.verbose:
                 logger.info("Indexing %d files...", len(paths))
             await manager.sync_project(paths, force_distill=args.force)
-    elif args.all:
-        paths = [
-            str(p)
-            for p in Path(".").rglob("*")
-            if p.is_file() and should_index(p, ignore_spec)
-        ]
 
-        if args.verbose:
-            logger.info("Indexing %d files...", len(paths))
-        await manager.sync_project(paths, force_distill=args.force)
-
-    if not args.json:
-        print("Done.")
-    else:
-        print(json.dumps({"status": "success"}))
+        if not args.json:
+            print("Done.")
+        else:
+            print(json.dumps({"status": "success"}))
+    finally:
+        await manager.close()
 
 
 async def search_cmd(args):
     manager = get_manager(args.db, args.onnx, args.verbose)
-    results = await manager.search(args.query, limit=args.limit)
+    try:
+        results = await manager.search(args.query, limit=args.limit)
 
-    if args.json:
-        output = [unit.model_dump() for unit in results]
-        print(json.dumps(output, indent=2, ensure_ascii=False))
-        return
+        if args.json:
+            output = [unit.model_dump() for unit in results]
+            print(json.dumps(output, indent=2, ensure_ascii=False))
+            return
 
-    if not results:
-        print("No results.")
-        return
+        if not results:
+            print("No results.")
+            return
 
-    for unit in results:
-        print(f"[{unit.kind.value}] {unit.name} | {unit.path}")
-        if unit.summary:
-            print(f"  {unit.summary}")
-        print("-" * 20)
+        for unit in results:
+            print(f"[{unit.kind.value}] {unit.name} | {unit.path}")
+            if unit.docstring:
+                # Indent docstring
+                ds = "\n".join(f"  # {line}" for line in unit.docstring.splitlines())
+                print(ds)
+            if unit.summary:
+                print(f"  {unit.summary}")
+            print("-" * 20)
+    finally:
+        await manager.close()
 
 
 async def api_cmd(args):
     manager = get_manager(args.db, args.onnx, args.verbose)
+    try:
+        language = args.lang
+        if not language:
+            # Smart hinting: try to guess from project context
+            if Path("Cargo.toml").exists():
+                language = "rust"
+            elif Path("package.json").exists():
+                language = "typescript"
+            elif Path("go.mod").exists():
+                language = "go"
+            elif Path("pom.xml").exists() or list(Path(".").glob("build.gradle*")):
+                language = "java"
+            elif list(Path(".").glob("*.py")):
+                language = "python"
+            elif Path("app.csproj").exists() or list(Path(".").glob("*.csproj")):
+                language = "csharp"
 
-    language = args.lang
-    if not language:
-        # Smart hinting: try to guess from project context
-        if Path("Cargo.toml").exists():
-            language = "rust"
-        elif Path("package.json").exists():
-            language = "typescript"
-        elif Path("go.mod").exists():
-            language = "go"
-        elif Path("pom.xml").exists() or list(Path(".").glob("build.gradle*")):
-            language = "java"
-        elif list(Path(".").glob("*.py")):
-            language = "python"
-        else:
+        if not language:
             print("Error: Language not specified and could not be auto-detected.")
             print(
-                "Please use --lang <language> (e.g., python, java, go, typescript, rust)"
+                "Please use --lang <language> (e.g., python, java, go, typescript, rust, csharp)"
             )
             return
 
-    output = await manager.discovery.extract_api(args.library, language=language)
-    if args.json:
-        print(json.dumps({"api": output}))
-    else:
-        print(output)
+        output = await manager.discovery.extract_api(args.library, language=language)
+        if args.json:
+            print(json.dumps({"api": output}))
+        else:
+            print(output)
+    finally:
+        await manager.close()
 
 
 async def download_file(url: str, dest: Path):
     dest.parent.mkdir(parents=True, exist_ok=True)
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        async with client.stream("GET", url) as response:
-            if response.status_code != 200:
-                return False
-            with open(dest, "wb") as f:
-                async for chunk in response.aiter_bytes():
-                    f.write(chunk)
-    return True
+    temp_dest = dest.with_suffix(dest.suffix + ".tmp")
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            async with client.stream("GET", url) as response:
+                if response.status_code != 200:
+                    return False
+                with open(temp_dest, "wb") as f:
+                    async for chunk in response.aiter_bytes():
+                        f.write(chunk)
+        os.replace(temp_dest, dest)
+        return True
+    except Exception as e:
+        logger.error("Failed to download %s: %s", url, e)
+        if temp_dest.exists():
+            temp_dest.unlink()
+        return False
 
 
 async def setup_cmd(args):
