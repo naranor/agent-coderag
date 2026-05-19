@@ -4,7 +4,7 @@ import os
 import shutil
 import subprocess  # nosec
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from .interfaces import IStorage, IParser, IIntelligence
 from .models import KnowledgeUnit
 from .utils import validate_path
@@ -33,7 +33,7 @@ class CodeRAGManager:
         self.semaphore = asyncio.Semaphore(max_concurrency)
         self.discovery = DiscoveryManager(storage=storage)
 
-    async def sync_dependencies(self, project_path: str):
+    async def sync_dependencies(self, project_path: str) -> None:
         """
         Resolves project dependencies (Maven/Gradle) and caches JAR paths.
         """
@@ -46,16 +46,16 @@ class CodeRAGManager:
         elif gradle_files:
             await self._sync_gradle(root)
 
-    async def _sync_maven(self, root: Path):
-        mvn_bin = shutil.which("mvn")
+    async def _sync_maven(self, root: Path) -> None:
+        mvn_bin: Optional[str] = shutil.which("mvn")
         if not mvn_bin:
             logger.warning("mvn not found, skipping dependency sync")
             return
 
         # Validate path to prevent path traversal/injection
-        root = validate_path(root)
+        valid_root = validate_path(root)
 
-        cp_file = root / ".coderag_cp.txt"
+        cp_file = valid_root / ".coderag_cp.txt"
         logger.info("Resolving Maven dependencies...")
         try:
             # -Dmdep.outputFile is relative to project root or absolute
@@ -66,7 +66,7 @@ class CodeRAGManager:
             ]
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                cwd=str(root),
+                cwd=str(valid_root),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )  # nosec
@@ -89,7 +89,7 @@ class CodeRAGManager:
         except Exception as e:
             logger.error("Failed to sync Maven dependencies: %s", e)
 
-    async def _cache_jar_path(self, jar_path: str):
+    async def _cache_jar_path(self, jar_path: str) -> None:
         """Helper to parse jar name and cache it."""
         # Extract lib name from jar name (e.g. spring-core-6.1.1.jar -> spring-core)
         jar_name = Path(jar_path).stem
@@ -102,12 +102,13 @@ class CodeRAGManager:
 
         await self.storage.set_dependency_path(lib_name, jar_path)
 
-    async def _sync_gradle(self, root: Path):
+    async def _sync_gradle(self, root: Path) -> None:
         """
         Resolves Gradle dependencies using a temporary init script.
         """
         # 1. Find gradle executable (wrapper preferred)
         gradle_wrapper = root / ("gradlew.bat" if os.name == "nt" else "gradlew")
+        gradle_bin: Optional[str] = None
         if gradle_wrapper.exists():
             gradle_bin = str(gradle_wrapper.resolve())
         else:
@@ -118,10 +119,10 @@ class CodeRAGManager:
             return
 
         # Validate path
-        root = validate_path(root)
-        await self._execute_gradle_init(root, gradle_bin)
+        valid_root = validate_path(root)
+        await self._execute_gradle_init(valid_root, gradle_bin)
 
-    async def _execute_gradle_init(self, root: Path, gradle_bin: str):
+    async def _execute_gradle_init(self, root: Path, gradle_bin: str) -> None:
         init_script = root / ".coderag_init.gradle"
         init_content = """
 allprojects {
@@ -180,7 +181,7 @@ allprojects {
             if init_script.exists():
                 init_script.unlink()
 
-    async def sync_file(self, file_path: str, force_distill: bool = False):
+    async def sync_file(self, file_path: str, force_distill: bool = False) -> None:
         """
         Processes a single file and syncs it with the storage.
         """
@@ -211,9 +212,8 @@ allprojects {
                         "Distilling summary for %s in %s...", unit.name, unit.path
                     )
                     try:
-                        unit.summary = await self.intelligence.summarize(
-                            raw_code, unit.name
-                        )
+                        summary = await self.intelligence.summarize(raw_code, unit.name)
+                        unit.summary = summary
                     except Exception as e:
                         logger.error("Failed to distill %s: %s", unit.name, e)
                         # Keep old summary if available, otherwise stay None
@@ -235,18 +235,18 @@ allprojects {
         """
         return await self.storage.search_units(query, limit=limit)
 
-    async def sync_project(self, paths: List[str], force_distill: bool = False):
+    async def sync_project(self, paths: List[str], force_distill: bool = False) -> None:
         """
         Concurrent synchronization of multiple files using a worker pool.
         """
         if not paths:
             return
 
-        queue = asyncio.Queue()
+        queue: asyncio.Queue[str] = asyncio.Queue()
         for p in paths:
             await queue.put(p)
 
-        async def worker():
+        async def worker() -> None:
             while not queue.empty():
                 path = await queue.get()
                 try:
@@ -263,7 +263,7 @@ allprojects {
         await asyncio.gather(*tasks)
         logger.info("Project sync complete.")
 
-    async def close(self):
+    async def close(self) -> None:
         """Releases manager resources."""
         await self.storage.close()
         # If intelligence has close method (Embedder does)

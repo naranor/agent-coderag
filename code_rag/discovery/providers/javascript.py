@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Dict
 
 from .base import IDiscoveryProvider
 from ...parsers.tree_sitter import TreeSitterParser
@@ -57,7 +57,7 @@ class JavaScriptDiscoveryProvider(IDiscoveryProvider):
             return f"No public entities found for '{library_name}'."
 
         # Group units by file for display
-        units_by_file = {}
+        units_by_file: Dict[str, List[KnowledgeUnit]] = {}
         for unit in all_units:
             f_name = Path(unit.path).name
             if f_name not in units_by_file:

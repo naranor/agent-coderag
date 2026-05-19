@@ -45,6 +45,12 @@ class IStorage(ABC):
         """Retrieves the cached path for a library."""
 
     @abstractmethod
+    async def delete_stale_units(
+        self, file_path: str, current_unit_ids: List[str]
+    ) -> None:
+        """Removes units that are no longer present in the given file."""
+
+    @abstractmethod
     async def close(self) -> None:
         """Closes the storage connection and releases resources."""
 

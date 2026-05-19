@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-05-19
+
+### Added
+- **Global Docstring Extraction:** Parser now extracts and stores code comments/docstrings for all supported languages.
+- **Recursive API Discovery:** Improved JS/TS and Rust providers to follow local exports and modules (up to 3 levels deep).
+- **Gradle Support:** Added automated dependency resolution and JAR path caching for Gradle-based Java projects.
+- **Garbage Collection:** Automatic removal of stale records from the database when files are deleted or modified.
+- **Worker Pool:** Memory-efficient indexing using an asynchronous task queue to handle large projects.
+- **Safety & Validation:** Implemented Path Traversal protection and strict sanitization for all subprocess arguments.
+- **Resource Management:** Added explicit `close()` methods for Storage and Embedder to ensure clean session termination.
+
+### Changed
+- **Performance:** Fixed N+1 query problem by batch-fetching all unit relations in a single database request.
+- **Robustness:** Replaced silent "zero-vector" failures in the embedder with explicit `IntelligenceError` exceptions.
+- **Stability:** Added timeouts (30-120s) to all external subprocess calls (Maven, Gradle, Cargo, Go).
+- **Architecture:** Centralized project-wide constants and unified error handling with a new typed exception hierarchy.
+
+### Fixed
+- **SemVer Sorting:** Corrected lexicographical version sorting for Java and C# dependencies (now 1.10.0 > 1.9.0).
+- **Decoding:** Added fault-tolerant UTF-8 decoding in the parser to prevent crashes on non-standard source files.
+- **Anonymous Blocks:** Improved naming for anonymous functions and lambda blocks by resolving them from parent context.
+
 ## [1.2.2] - 2026-05-09
 
 ### Added

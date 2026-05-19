@@ -30,6 +30,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install .
         pip install pytest pytest-asyncio pytest-cov
+        # Install grammars for tests
+        pip install tree-sitter-python tree-sitter-javascript
 
     - name: Run unit tests with coverage
       run: |
@@ -61,6 +63,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install .
         pip install prospector[with_mypy,with_bandit,with_vulture]
+        # Install grammars and types for linting
+        pip install tree-sitter-python tree-sitter-javascript types-aiofiles
 
     - name: Run Prospector audit
       run: |

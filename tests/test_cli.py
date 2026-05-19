@@ -51,7 +51,7 @@ class TestCLIHelpers:
             provider="openai",
         )
 
-        manager = cli.get_manager("test.db", verbose=False)
+        manager = cli.get_manager("test.db")
 
         assert manager is not None
 
