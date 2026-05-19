@@ -4,6 +4,8 @@ from typing import List, Set, Dict
 
 @dataclass
 class LanguageConfig:
+    id: str
+    extensions: Set[str]
     package: str
     entities: Set[str]
     body_fields: List[str]
@@ -15,6 +17,8 @@ class LanguageConfig:
 
 LANGUAGE_MAP: Dict[str, LanguageConfig] = {
     "python": LanguageConfig(
+        id="python",
+        extensions={".py"},
         package="tree_sitter_python",
         entities={"class_definition", "function_definition"},
         body_fields=["body"],
@@ -26,6 +30,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "javascript": LanguageConfig(
+        id="javascript",
+        extensions={".js", ".jsx"},
         package="tree_sitter_javascript",
         entities={
             "class_declaration",
@@ -46,6 +52,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "typescript": LanguageConfig(
+        id="typescript",
+        extensions={".ts", ".tsx", ".d.ts"},
         package="tree_sitter_typescript",
         entities={
             "class_declaration",
@@ -75,6 +83,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         language_function="language_typescript",
     ),
     "java": LanguageConfig(
+        id="java",
+        extensions={".java"},
         package="tree_sitter_java",
         entities={
             "class_declaration",
@@ -93,6 +103,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "cpp": LanguageConfig(
+        id="cpp",
+        extensions={".cpp", ".hpp", ".cc", ".hh"},
         package="tree_sitter_cpp",
         entities={"class_specifier", "function_definition", "struct_specifier"},
         body_fields=["body"],
@@ -105,6 +117,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "c_sharp": LanguageConfig(
+        id="c_sharp",
+        extensions={".cs"},
         package="tree_sitter_c_sharp",
         entities={
             "class_declaration",
@@ -125,6 +139,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "c": LanguageConfig(
+        id="c",
+        extensions={".c", ".h"},
         package="tree_sitter_c",
         entities={"function_definition", "struct_specifier"},
         body_fields=["body"],
@@ -136,6 +152,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "go": LanguageConfig(
+        id="go",
+        extensions={".go"},
         package="tree_sitter_go",
         entities={"function_declaration", "method_declaration", "type_declaration"},
         body_fields=["body"],
@@ -148,6 +166,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "rust": LanguageConfig(
+        id="rust",
+        extensions={".rs"},
         package="tree_sitter_rust",
         entities={
             "function_item",
@@ -170,6 +190,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "php": LanguageConfig(
+        id="php",
+        extensions={".php"},
         package="tree_sitter_php",
         entities={
             "class_declaration",
@@ -190,6 +212,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "ruby": LanguageConfig(
+        id="ruby",
+        extensions={".rb"},
         package="tree_sitter_ruby",
         entities={"class", "method", "module", "singleton_method"},
         body_fields=["body"],
@@ -203,6 +227,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "swift": LanguageConfig(
+        id="swift",
+        extensions={".swift"},
         package="tree_sitter_swift",
         entities={
             "class_declaration",
@@ -223,6 +249,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "kotlin": LanguageConfig(
+        id="kotlin",
+        extensions={".kt", ".kts"},
         package="tree_sitter_kotlin",
         entities={
             "class_declaration",
@@ -241,6 +269,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "sql": LanguageConfig(
+        id="sql",
+        extensions={".sql"},
         package="tree_sitter_sql",
         entities={
             "create_table_statement",
@@ -259,6 +289,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "bash": LanguageConfig(
+        id="bash",
+        extensions={".sh", ".bash"},
         package="tree_sitter_bash",
         entities={"function_definition"},
         body_fields=["body"],
@@ -269,6 +301,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "r": LanguageConfig(
+        id="r",
+        extensions={".r"},
         package="tree_sitter_r",
         entities={"function_definition"},
         body_fields=["body"],
@@ -279,6 +313,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "dart": LanguageConfig(
+        id="dart",
+        extensions={".dart"},
         package="tree_sitter_dart",
         entities={"class_definition", "function_declaration", "method_declaration"},
         body_fields=["body"],
@@ -291,6 +327,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "scala": LanguageConfig(
+        id="scala",
+        extensions={".scala"},
         package="tree_sitter_scala",
         entities={
             "class_definition",
@@ -309,6 +347,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "lua": LanguageConfig(
+        id="lua",
+        extensions={".lua"},
         package="tree_sitter_lua",
         entities={
             "function_definition",
@@ -325,6 +365,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "perl": LanguageConfig(
+        id="perl",
+        extensions={".pl", ".pm"},
         package="tree_sitter_perl",
         entities={"subroutine_definition"},
         body_fields=["body"],
@@ -335,6 +377,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "haskell": LanguageConfig(
+        id="haskell",
+        extensions={".hs"},
         package="tree_sitter_haskell",
         entities={
             "function_declaration",
@@ -353,6 +397,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "objective_c": LanguageConfig(
+        id="objective_c",
+        extensions={".m", ".mm"},
         package="tree_sitter_objc",
         entities={
             "class_interface",
@@ -375,6 +421,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "zig": LanguageConfig(
+        id="zig",
+        extensions={".zig"},
         package="tree_sitter_zig",
         entities={"function_declaration", "struct_declaration"},
         body_fields=["body"],
@@ -386,6 +434,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "elixir": LanguageConfig(
+        id="elixir",
+        extensions={".ex", ".exs"},
         package="tree_sitter_elixir",
         entities={"call"},
         body_fields=["body"],
@@ -396,6 +446,8 @@ LANGUAGE_MAP: Dict[str, LanguageConfig] = {
         },
     ),
     "julia": LanguageConfig(
+        id="julia",
+        extensions={".jl"},
         package="tree_sitter_julia",
         entities={"function_definition", "struct_definition", "module_definition"},
         body_fields=["body"],
@@ -449,3 +501,5 @@ EXTENSION_TO_LANGUAGE: Dict[str, str] = {
     ".exs": "elixir",
     ".jl": "julia",
 }
+
+LANGUAGES = list(LANGUAGE_MAP.values())

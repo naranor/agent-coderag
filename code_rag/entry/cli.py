@@ -1,82 +1,44 @@
-import asyncio
-import argparse
-import os
-import sys
 import logging
+import asyncio
+import os
+import argparse
+import sys
 import json
 from pathlib import Path
 from typing import Optional
-import httpx
+
+import requests
 import pathspec
 
-# Suppress external library noise before they are imported by other modules
-os.environ["LITELLM_VERBOSE"] = "FALSE"
-logging.getLogger("LiteLLM").setLevel(logging.WARNING)
-logging.getLogger("onnxruntime").setLevel(logging.ERROR)
+from ..core.manager import CodeRAGManager
+from ..storage.duckdb_impl import DuckDBStorage
+from ..parsers.multi_parser import MultiParser
+from ..intelligence.distiller import Distiller, DistillerConfig
+from ..intelligence.embedder import Embedder, get_global_dir
+from ..parsers.languages import EXTENSION_TO_LANGUAGE
+from ..core.utils import validate_path
+from ..core.exceptions import CodeRAGError, DiscoveryError
 
-# pylint: disable=wrong-import-position
-from ..core.manager import CodeRAGManager  # noqa: E402
-from ..storage.duckdb_impl import DuckDBStorage  # noqa: E402
-from ..parsers.multi_parser import MultiParser  # noqa: E402
-from ..intelligence.embedder import Embedder, get_default_model_dir  # noqa: E402
-from ..intelligence.distiller import Distiller, DistillerConfig  # noqa: E402
-from ..parsers.languages import EXTENSION_TO_LANGUAGE  # noqa: E402
-from ..core.utils import validate_path  # noqa: E402
-# pylint: enable=wrong-import-position
-
-# Setup basic logging - default to WARNING for clean output
-logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
-logger = logging.getLogger("agent-coderag")
-
-
-def get_manager(db_path: str, onnx_path: Optional[str] = None, verbose: bool = False):
-    """Initializes the RAG manager."""
-    if verbose:
-        logging.getLogger().setLevel(logging.INFO)
-
-    # Validate paths to prevent path traversal
-    db_path = str(validate_path(db_path))
-    if onnx_path:
-        onnx_path = str(validate_path(onnx_path))
-
-    config = DistillerConfig.load()
-    config.api_base = os.getenv("AGENT_PROXY_URL", config.api_base)
-    config.api_key = os.getenv("AGENT_PROXY_KEY", config.api_key)
-    config.model = os.getenv("AGENT_MODEL", config.model)
-    config.provider = os.getenv("AGENT_PROVIDER", config.provider)
-
-    embedder = Embedder(model_path=onnx_path)
-    storage = DuckDBStorage(db_path, embedder=embedder)
-    parser = MultiParser()
-    distiller = Distiller(config)
-
-    return CodeRAGManager(storage, parser, distiller)
+logger = logging.getLogger(__name__)
 
 
 def load_ignore_patterns() -> pathspec.PathSpec:
-    """Loads patterns from .gitignore if it exists."""
+    """Loads ignore patterns from .gitignore or defaults."""
     lines = []
-    ignore_file = Path(".gitignore")
-    if ignore_file.exists():
-        try:
-            with open(ignore_file, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-        except Exception as e:
-            logger.warning("Failed to load .gitignore: %s", e)
+    if os.path.exists(".gitignore"):
+        with open(".gitignore", "r", encoding="utf-8") as f:
+            lines = f.readlines()
 
-    # Always exclude common noisy directories as a safety measure
     common_excludes = [
+        "node_modules/",
         "venv/",
         ".venv/",
         "__pycache__/",
         ".git/",
-        ".pytest_cache/",
-        "dist/",
-        "build/",
-        "node_modules/",
         ".idea/",
         ".vscode/",
-        ".agents/",
+        ".onnx",
+        ".db",
         ".ai/",
     ]
     return pathspec.PathSpec.from_lines("gitignore", lines + common_excludes)
@@ -99,12 +61,15 @@ async def sync_cmd(args):
     if args.path:
         args.path = str(validate_path(args.path))
 
-    manager = get_manager(args.db, args.onnx, args.verbose)
+    manager = get_manager(args.db, args.onnx)
     try:
         ignore_spec = load_ignore_patterns()
 
         # Task 2: Sync dependencies before indexing
-        await manager.sync_dependencies(args.path or ".")
+        try:
+            await manager.sync_dependencies(args.path or ".")
+        except DiscoveryError as de:
+            logger.warning("Dependency discovery failed: %s", de)
 
         if args.path:
             target_path = Path(args.path)
@@ -132,113 +97,86 @@ async def sync_cmd(args):
                 logger.info("Indexing %d files...", len(paths))
             await manager.sync_project(paths, force_distill=args.force)
 
-        if not args.json:
-            print("Done.")
+        if args.json:
+            print(json.dumps({"status": "success", "indexed_files": "auto"}))
+    except Exception as e:
+        logger.error("Sync failed: %s", e)
+        if args.json:
+            print(json.dumps({"status": "error", "message": str(e)}))
         else:
-            print(json.dumps({"status": "success"}))
+            print(f"Error: {e}", file=sys.stderr)
     finally:
         await manager.close()
 
 
 async def search_cmd(args):
-    manager = get_manager(args.db, args.onnx, args.verbose)
+    manager = get_manager(args.db, args.onnx)
     try:
         results = await manager.search(args.query, limit=args.limit)
 
         if args.json:
-            output = [unit.model_dump() for unit in results]
-            print(json.dumps(output, indent=2, ensure_ascii=False))
-            return
+            output = []
+            for r in results:
+                output.append(
+                    {
+                        "id": r.id,
+                        "name": r.name,
+                        "kind": r.kind.value,
+                        "path": r.path,
+                        "signature": r.signature,
+                        "summary": r.summary,
+                    }
+                )
+            print(json.dumps(output, indent=2))
+        else:
+            if not results:
+                print("No results.")
+                return
 
-        if not results:
-            print("No results.")
-            return
-
-        for unit in results:
-            print(f"[{unit.kind.value}] {unit.name} | {unit.path}")
-            if unit.docstring:
-                # Indent docstring
-                ds = "\n".join(f"  # {line}" for line in unit.docstring.splitlines())
-                print(ds)
-            if unit.summary:
-                print(f"  {unit.summary}")
-            print("-" * 20)
+            print(f"Search results for: '{args.query}'\n")
+            for r in results:
+                print(f"[{r.kind.value}] {r.name} ({r.path})")
+                if r.summary:
+                    print(f"  Summary: {r.summary}")
+                print("-" * 20)
     finally:
         await manager.close()
 
 
 async def api_cmd(args):
-    manager = get_manager(args.db, args.onnx, args.verbose)
+    manager = get_manager(args.db, args.onnx)
     try:
-        language = args.lang
-        if not language:
-            # Smart hinting: try to guess from project context
-            if Path("Cargo.toml").exists():
-                language = "rust"
-            elif Path("package.json").exists():
-                language = "typescript"
-            elif Path("go.mod").exists():
-                language = "go"
-            elif Path("pom.xml").exists() or list(Path(".").glob("build.gradle*")):
-                language = "java"
-            elif list(Path(".").glob("*.py")):
-                language = "python"
-            elif Path("app.csproj").exists() or list(Path(".").glob("*.csproj")):
-                language = "csharp"
+        # Default to python if not specified
+        lang = args.lang or "python"
+        api_report = await manager.discovery.extract_api(args.library, language=lang)
 
-        if not language:
-            print("Error: Language not specified and could not be auto-detected.")
-            print(
-                "Please use --lang <language> (e.g., python, java, go, typescript, rust, csharp)"
-            )
-            return
-
-        output = await manager.discovery.extract_api(args.library, language=language)
         if args.json:
-            print(json.dumps({"api": output}))
+            print(json.dumps({"library": args.library, "report": api_report}))
         else:
-            print(output)
+            print(api_report)
+    except Exception as e:
+        logger.error("API discovery failed: %s", e)
+        if args.json:
+            print(json.dumps({"status": "error", "message": str(e)}))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
     finally:
         await manager.close()
 
 
-async def download_file(url: str, dest: Path):
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    temp_dest = dest.with_suffix(dest.suffix + ".tmp")
-    try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            async with client.stream("GET", url) as response:
-                if response.status_code != 200:
-                    return False
-                with open(temp_dest, "wb") as f:
-                    async for chunk in response.aiter_bytes():
-                        f.write(chunk)
-        os.replace(temp_dest, dest)
-        return True
-    except Exception as e:
-        logger.error("Failed to download %s: %s", url, e)
-        if temp_dest.exists():
-            temp_dest.unlink()
-        return False
-
-
-async def setup_cmd(args):
-    dest_dir = get_default_model_dir()
-    base_url = "https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/resolve/main"
-    files = {
-        "model.onnx": f"{base_url}/onnx/model.onnx",
-        "tokenizer.json": f"{base_url}/tokenizer.json",
-    }
-    force = getattr(args, "force", False)
-    for filename, url in files.items():
-        dest_path = dest_dir / filename
-        if not dest_path.exists() or force:
-            await download_file(url, dest_path)
-    print("Setup complete.")
-
-
 def config_cmd(args):
     config = DistillerConfig.load()
+
+    # If no args, just show current config
+    if not (args.url or args.key or args.model or args.provider):
+        if args.json:
+            print(json.dumps(config.model_dump(), indent=2))
+        else:
+            print("Current configuration:")
+            for k, v in config.model_dump().items():
+                print(f"  {k}: {v}")
+        return
+
     if args.url:
         config.api_base = args.url
     if args.key:
@@ -247,81 +185,152 @@ def config_cmd(args):
         config.model = args.model
     if args.provider:
         config.provider = args.provider
+
     config.save()
     if args.json:
-        print(json.dumps(config.model_dump()))
+        print(json.dumps({"status": "success", "message": "Config updated"}))
     else:
         print("Config updated.")
 
 
-async def rebuild_cmd(args):
-    db_path = Path(args.db)
-    if db_path.exists():
-        if args.verbose:
-            logger.info("Removing old database: %s", db_path)
-        db_path.unlink()
+async def setup_cmd(args):
+    """Downloads necessary local models."""
+    global_dir = get_global_dir()
+    model_dir = global_dir / "models" / "mini-lm"
+    model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Trigger full sync
+    files = {
+        "model.onnx": "https://huggingface.co/naranor/all-MiniLM-L6-v2-onnx/resolve/main/model.onnx",
+        "tokenizer.json": "https://huggingface.co/naranor/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer.json",
+    }
+
+    if not args.json:
+        print(f"Setting up agent-coderag in {global_dir}...")
+
+    for name, url in files.items():
+        target_path = model_dir / name
+        if target_path.exists() and not args.force:
+            if not args.json:
+                print(f"  {name} already exists. Skipping.")
+            continue
+
+        if not args.json:
+            print(f"  Downloading {name}...")
+        tmp_path = target_path.with_suffix(".tmp")
+        try:
+            response = requests.get(url, stream=True, timeout=30)
+            response.raise_for_status()
+            with open(tmp_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            os.replace(tmp_path, target_path)
+        except Exception as e:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            if not args.json:
+                print(f"  Error downloading {name}: {e}")
+            return
+
+    if not args.json:
+        print("Setup complete.")
+
+
+async def rebuild_cmd(args):
+    """Full re-index of the current project."""
+    # Force re-distill all files
     args.all = True
     args.force = True
     args.path = None
     await sync_cmd(args)
 
 
+def get_manager(db_path: str, onnx_path: Optional[str] = None) -> CodeRAGManager:
+    # 1. Setup Intelligence
+    config = DistillerConfig.load()
+    distiller = Distiller(config)
+    embedder = Embedder(model_path=onnx_path)
+
+    # 2. Setup Storage
+    storage = DuckDBStorage(db_path, embedder=embedder)
+
+    # 3. Setup Parser
+    parser = MultiParser()
+
+    return CodeRAGManager(storage, parser, distiller)
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Agent-CodeRAG CLI Tool")
-    parser.add_argument("--db", default=".code_rag.db", help="Path to DuckDB database")
-    parser.add_argument("--onnx", help="Path to ONNX embedding model")
-    parser.add_argument("--verbose", action="store_true", help="Show debug logs")
+    parser = argparse.ArgumentParser(description="CodeRAG: API Knowledge Bridge.")
     parser.add_argument(
-        "--json", action="store_true", help="Output results in JSON format"
+        "--db", default="code_rag.db", help="Path to DuckDB database file."
     )
+    parser.add_argument("--onnx", help="Path to local ONNX model file.")
+    parser.add_argument(
+        "--verbose", action="store_true", help="Enable verbose logging."
+    )
+    parser.add_argument("--json", action="store_true", help="Output results in JSON.")
 
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
-    # Commands
-    subparsers.add_parser("setup", help="Download models")
-    subparsers.add_parser("rebuild", help="Nuke database and re-index everything")
+    # Sync
+    sync = subparsers.add_parser("sync", help="Index code units.")
+    sync.add_argument("path", nargs="?", help="File or directory to index.")
+    sync.add_argument("--all", action="store_true", help="Index all supported files.")
+    sync.add_argument("--force", action="store_true", help="Force re-distillation.")
 
-    conf_p = subparsers.add_parser("config", help="AI settings")
-    conf_p.add_argument("--url", help="API base URL")
-    conf_p.add_argument("--key", help="API key")
-    conf_p.add_argument("--model", help="Model name")
-    conf_p.add_argument("--provider", help="Provider")
+    # Search
+    search = subparsers.add_parser("search", help="Semantic search.")
+    search.add_argument("query", help="Natural language query.")
+    search.add_argument("--limit", type=int, default=5, help="Result limit.")
 
-    sync_p = subparsers.add_parser("sync", help="Index files")
-    sync_p.add_argument("path", nargs="?", help="Path to index")
-    sync_p.add_argument("--all", action="store_true", help="Index all python files")
-    sync_p.add_argument("--force", action="store_true", help="Force distillation")
+    # API
+    api = subparsers.add_parser("api", help="Discover library API.")
+    api.add_argument("library", help="Library name (e.g., pydantic).")
+    api.add_argument("--lang", help="Target language.")
 
-    search_p = subparsers.add_parser("search", help="Semantic search")
-    search_p.add_argument("query", help="Query")
-    search_p.add_argument("--limit", type=int, default=5, help="Max results")
+    # Config
+    cfg = subparsers.add_parser("config", help="Manage LLM configuration.")
+    cfg.add_argument("--url", help="API base URL.")
+    cfg.add_argument("--key", help="API key.")
+    cfg.add_argument("--model", help="Model name.")
+    cfg.add_argument("--provider", help="Provider name (openai, ollama).")
 
-    api_p = subparsers.add_parser("api", help="Discover library API")
-    api_p.add_argument("library", help="Library name")
-    api_p.add_argument("--lang", help="Language (python, java, go, typescript, rust)")
+    # Setup
+    setup = subparsers.add_parser("setup", help="Initial setup (download models).")
+    setup.add_argument("--force", action="store_true", help="Force model redownload.")
 
-    args = parser.parse_args()
+    # Rebuild
+    subparsers.add_parser("rebuild", help="Full re-index of the project.")
 
     try:
-        if args.command == "setup":
-            asyncio.run(setup_cmd(args))
-        elif args.command == "config":
-            config_cmd(args)
-        elif args.command == "rebuild":
-            asyncio.run(rebuild_cmd(args))
-        elif args.command == "sync":
+        args = parser.parse_args()
+
+        if args.verbose:
+            logging.basicConfig(level=logging.INFO)
+        else:
+            logging.basicConfig(level=logging.WARNING)
+
+        if args.command == "sync":
             asyncio.run(sync_cmd(args))
         elif args.command == "search":
             asyncio.run(search_cmd(args))
         elif args.command == "api":
             asyncio.run(api_cmd(args))
-    except Exception as e:
-        if args.json:
-            print(json.dumps({"error": str(e)}))
+        elif args.command == "config":
+            config_cmd(args)
+        elif args.command == "setup":
+            asyncio.run(setup_cmd(args))
+        elif args.command == "rebuild":
+            asyncio.run(rebuild_cmd(args))
         else:
-            logger.error(e)
+            parser.print_help()
+    except CodeRAGError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        sys.exit(0)
+    except Exception as e:
+        logger.error("Unexpected error: %s", e)
         sys.exit(1)
 
 

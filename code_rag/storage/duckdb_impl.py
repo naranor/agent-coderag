@@ -204,10 +204,10 @@ class DuckDBStorage(IStorage):
 
         # Optimization: Fix N+1 problem by batch-fetching all relations
         unit_ids = [u.id for u in units]
-        # DuckDB handles list parameters natively for IN clause
+        # DuckDB handles list parameters natively for IN clause with SELECT unnest
         rels_res = await asyncio.to_thread(
             lambda: self.conn.execute(
-                "SELECT from_id, to_id, type FROM relations WHERE from_id IN (?)",
+                "SELECT from_id, to_id, type FROM relations WHERE from_id IN (SELECT unnest(?))",
                 [unit_ids],
             ).fetchall()
         )
@@ -238,7 +238,9 @@ class DuckDBStorage(IStorage):
             [relation.from_id, relation.to_id, relation.type.value],
         )
 
-    async def get_relations(self, unit_id: str, direction: str = "out") -> List[Relation]:
+    async def get_relations(
+        self, unit_id: str, direction: str = "out"
+    ) -> List[Relation]:
         """Retrieves relations for a unit."""
         if direction == "out":
             res = await asyncio.to_thread(
@@ -250,13 +252,18 @@ class DuckDBStorage(IStorage):
         else:
             res = await asyncio.to_thread(
                 lambda: self.conn.execute(
-                    "SELECT from_id, to_id, type FROM relations WHERE to_id = ?", [unit_id]
+                    "SELECT from_id, to_id, type FROM relations WHERE to_id = ?",
+                    [unit_id],
                 ).fetchall()
             )
 
-        return [Relation(from_id=r[0], to_id=r[1], type=RelationType(r[2])) for r in res]
+        return [
+            Relation(from_id=r[0], to_id=r[1], type=RelationType(r[2])) for r in res
+        ]
 
-    async def delete_stale_units(self, file_path: str, current_unit_ids: List[str]) -> None:
+    async def delete_stale_units(
+        self, file_path: str, current_unit_ids: List[str]
+    ) -> None:
         """Removes units that are no longer present in the given file."""
         # 1. Delete embeddings
         await asyncio.to_thread(

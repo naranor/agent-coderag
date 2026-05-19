@@ -1,4 +1,4 @@
-.PHONY: install test lint format clean sync search api setup rebuild
+.PHONY: install test lint format clean sync search api setup rebuild install-test-deps
 
 PYTHON = .venv/Scripts/python.exe
 PYTEST = .venv/Scripts/pytest.exe
@@ -9,10 +9,13 @@ install:
 	$(PYTHON) -m pip install -e ".[dev]"
 	.venv/Scripts/pre-commit.exe install
 
-test:
-	$(PYTHON) -m pytest --verbose --cov --cov-branch --cov-report=xml
+install-test-deps:
+	$(PYTHON) -m pip install tree-sitter-python tree-sitter-javascript types-aiofiles
 
-lint:
+test: install-test-deps
+	$(PYTHON) -m pytest --verbose --cov --cov-branch --cov-report=xml --cov-report=term-missing --cov-fail-under=90
+
+lint: install-test-deps
 	$(PYTHON) -m prospector code_rag --profile .prospector.yaml --with-tool mypy --with-tool bandit
 
 format:

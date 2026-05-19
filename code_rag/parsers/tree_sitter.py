@@ -1,139 +1,146 @@
-import importlib
-import os
 import hashlib
-from typing import List, Optional
+import logging
+import importlib
+from typing import List, Optional, Dict, Any
+from pathlib import Path
 
 import aiofiles
 from tree_sitter import Language, Parser, Node
 
 from ..core.interfaces import IParser
 from ..core.models import KnowledgeUnit, UnitKind
-from .languages import LANGUAGE_MAP, EXTENSION_TO_LANGUAGE, LanguageConfig
+from .languages import LanguageConfig, LANGUAGES
+
+logger = logging.getLogger(__name__)
 
 
 class GrammarNotFoundError(Exception):
-    """Raised when a tree-sitter grammar package is not installed."""
-
-    def __init__(self, ext: str, package: str):
-        self.ext = ext
-        self.package = package
-        super().__init__(
-            f"[MISSING DEPENDENCY] Grammar for '{ext}' files is not installed. "
-            f"Action: Run 'pip install {package}' to enable analysis."
-        )
+    """Raised when a tree-sitter grammar package is missing."""
 
 
 class TreeSitterParser(IParser):
-    """Universal parser using tree-sitter for multiple languages."""
+    """
+    Asynchronous AST parser using Tree-Sitter for high-precision symbol extraction.
+    """
 
-    def __init__(self):
-        self._parsers = {}
+    def __init__(self) -> None:
+        self.parsers: Dict[str, Parser] = {}
 
-    def _get_parser(self, lang_id: str, ext: str) -> tuple[Parser, LanguageConfig]:
-        config = LANGUAGE_MAP.get(lang_id)
-        if not config:
-            raise ValueError(f"No configuration for language: {lang_id}")
-
-        if lang_id in self._parsers:
-            return self._parsers[lang_id], config
+    def _get_parser(self, lang_config: LanguageConfig) -> Parser:
+        lang_id = lang_config.id
+        if lang_id in self.parsers:
+            return self.parsers[lang_id]
 
         try:
-            lang_module = importlib.import_module(config.package)
-            # Dynamically call the language function from config
-            lang_func = getattr(lang_module, config.language_function)
-            ts_lang = Language(lang_func())
-
-            parser = Parser(ts_lang)
-            self._parsers[lang_id] = parser
-            return parser, config
-        except (ImportError, AttributeError) as exc:
-            raise GrammarNotFoundError(ext, config.package) from exc
+            # Dynamically load grammar (e.g. tree_sitter_python)
+            module_name = lang_config.package
+            lang_module = importlib.import_module(module_name)
+            language = Language(lang_module.language())
+            parser = Parser(language)
+            self.parsers[lang_id] = parser
+            return parser
+        except ImportError as e:
+            logger.error("Tree-sitter grammar for '%s' not installed.", lang_id)
+            raise GrammarNotFoundError(
+                f"[MISSING DEPENDENCY] Please install: pip install {lang_config.package}"
+            ) from e
 
     async def distill_file(self, file_path: str) -> List[KnowledgeUnit]:
-        ext = os.path.splitext(file_path)[1].lower()
-        lang_id = EXTENSION_TO_LANGUAGE.get(ext)
-        if not lang_id:
+        """
+        Parses a file and extracts high-level units (classes, functions).
+        """
+        ext = Path(file_path).suffix.lower()
+        lang_config = next((cfg for cfg in LANGUAGES if ext in cfg.extensions), None)
+
+        if not lang_config:
+            logger.debug("No language config for extension %s", ext)
             return []
 
-        parser, config = self._get_parser(lang_id, ext)
+        try:
+            async with aiofiles.open(file_path, mode="rb") as f:
+                source = await f.read()
 
-        async with aiofiles.open(file_path, "rb") as f:
-            source_bytes = await f.read()
+            parser = self._get_parser(lang_config)
+            tree = parser.parse(source)
 
-        tree = parser.parse(source_bytes)
-        units: List[KnowledgeUnit] = []
-        self._recursive_distill(
-            tree.root_node, source_bytes, config, file_path, units, scope=""
-        )
-        return units
+            units: List[KnowledgeUnit] = []
+            ctx: Dict[str, Any] = {
+                "source": source,
+                "config": lang_config,
+                "file_path": file_path,
+                "units": units,
+                "scope": None,
+            }
+            self._recursive_distill(tree.root_node, ctx)
+            return units
+        except GrammarNotFoundError:
+            # Re-raise grammar errors so callers can handle them (e.g. CLI setup suggestion)
+            raise
+        except Exception as e:
+            logger.error("Failed to parse %s: %s", file_path, e)
+            return []
 
-    # pylint: disable=too-many-arguments,too-many-locals,too-many-positional-arguments
-    def _recursive_distill(
-        self,
-        node: Node,
-        source: bytes,
-        config: LanguageConfig,
-        file_path: str,
-        units: List[KnowledgeUnit],
-        scope: str = "",
-    ):
-        current_scope = scope
-        if node.type in config.entities:
-            # 1. Resolve name (handle anonymous blocks)
-            node_name = self._resolve_name(node)
+    def _recursive_distill(self, node: Node, ctx: Dict[str, Any]) -> None:
+        config = ctx["config"]
+        current_scope = ctx["scope"]
 
-            # 2. Extract docstring (preceding comments)
-            docstring = self._extract_docstring(node)
-
-            # Update scope for children (e.g. methods inside this class)
+        if node.type in config.canonical_map:
+            self._process_node(node, ctx)
             if config.canonical_map.get(node.type) == "CLASS":
+                node_name = self._resolve_name(node)
+                scope = ctx["scope"]
                 current_scope = f"{scope}.{node_name}" if scope else node_name
 
-            # Extract signature (the stubbed version for RAG display)
-            signature = self._extract_signature(node, source, config)
-
-            # FULL code for distillation (important!)
-            raw_text = node.text.decode("utf-8", errors="replace") if node.text else ""
-            code_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
-
-            raw_kind = config.canonical_map.get(node.type, "function").lower()
-            try:
-                kind = UnitKind(raw_kind)
-            except ValueError:
-                kind = UnitKind.FUNCTION
-
-            # Stable ID based on qualified name
-            qname = f"{scope}.{node_name}" if scope else node_name
-            unit_id = f"{file_path}:{qname}"
-
-            unit = KnowledgeUnit(
-                id=unit_id,
-                name=node_name,
-                kind=kind,
-                signature=signature,
-                docstring=docstring,
-                path=file_path,
-                code_hash=code_hash,
-                metadata={
-                    "start_line": node.start_point[0] + 1,
-                    "end_line": node.end_point[0] + 1,
-                    "node_type": node.type,
-                    "raw_code": raw_text,
-                },
-            )
-            units.append(unit)
-
-        # Recurse into children
+        # Recurse into children with updated scope
+        child_ctx = {**ctx, "scope": current_scope}
         for child in node.children:
-            self._recursive_distill(
-                child, source, config, file_path, units, scope=current_scope
-            )
+            self._recursive_distill(child, child_ctx)
+
+    def _process_node(self, node: Node, ctx: Dict[str, Any]) -> None:
+        """Processes a single node and adds it to the units list."""
+        node_name = self._resolve_name(node)
+        docstring = self._extract_docstring(node)
+        signature = self._extract_signature(node, ctx["source"], ctx["config"])
+
+        # FULL code for distillation
+        raw_text = node.text.decode("utf-8", errors="replace") if node.text else ""
+        code_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+
+        kind = self._determine_kind(node, ctx["config"])
+
+        # Stable ID based on qualified name
+        scope = ctx["scope"]
+        qname = f"{scope}.{node_name}" if scope else node_name
+        unit_id = f"{ctx['file_path']}:{qname}"
+
+        unit = KnowledgeUnit(
+            id=unit_id,
+            name=node_name,
+            kind=kind,
+            signature=signature,
+            docstring=docstring,
+            path=ctx["file_path"],
+            code_hash=code_hash,
+            metadata={
+                "start_line": node.start_point[0] + 1,
+                "end_line": node.end_point[0] + 1,
+                "node_type": node.type,
+                "raw_code": raw_text,
+            },
+        )
+        ctx["units"].append(unit)
+
+    def _determine_kind(self, node: Node, config: LanguageConfig) -> UnitKind:
+        raw_kind = config.canonical_map.get(node.type, "function").lower()
+        try:
+            return UnitKind(raw_kind)
+        except ValueError:
+            return UnitKind.FUNCTION
 
     def _resolve_name(self, node: Node) -> str:
         """Attempts to find a name, resolving anonymous blocks from context."""
         name_node = node.child_by_field_name("name")
         if not name_node:
-            # Fallback 1: search for common identifier types among children
             for child in node.children:
                 if child.type in (
                     "identifier",
@@ -146,16 +153,12 @@ class TreeSitterParser(IParser):
         if name_node and name_node.text:
             return name_node.text.decode("utf-8", errors="replace")
 
-        # Fallback 2: contextual naming for anonymous blocks
-        # If this is an anonymous function assigned to a variable
         parent = node.parent
         if parent:
-            # JavaScript: const name = () => {}
             if parent.type == "variable_declarator":
                 id_node = parent.child_by_field_name("name")
                 if id_node and id_node.text:
                     return id_node.text.decode("utf-8", errors="replace")
-            # Python: name = lambda: ...
             elif parent.type == "assignment":
                 left_node = parent.child_by_field_name("left")
                 if left_node and left_node.text:
@@ -165,27 +168,24 @@ class TreeSitterParser(IParser):
 
     def _extract_docstring(self, node: Node) -> Optional[str]:
         """Collects all preceding comment nodes as a docstring."""
-        comments = []
+        comments: List[str] = []
         curr = node.prev_sibling
-        # Scan upwards for contiguous comment blocks
         while curr and "comment" in curr.type:
-            comment_text = curr.text.decode("utf-8", errors="replace").strip()
-            # Clean up comment markers (#, //, /*, */, etc.)
-            clean_text = self._clean_comment(comment_text)
-            if clean_text:
-                comments.insert(0, clean_text)
+            if curr.text:
+                comment_text = curr.text.decode("utf-8", errors="replace").strip()
+                clean_text = self._clean_comment(comment_text)
+                if clean_text:
+                    comments.insert(0, clean_text)
             curr = curr.prev_sibling
 
         return "\n".join(comments) if comments else None
 
     def _clean_comment(self, text: str) -> str:
         """Basic cleanup of common comment markers."""
-        # Multi-line
         if text.startswith("/*"):
             text = text[2:]
         if text.endswith("*/"):
             text = text[:-2]
-        # Single-line or line-by-line markers
         lines = text.splitlines()
         clean_lines = []
         for line in lines:
@@ -203,7 +203,6 @@ class TreeSitterParser(IParser):
     ) -> str:
         body_node = self._find_body(node, config)
         if not body_node:
-            # Safe access to text
             return node.text.decode("utf-8", errors="replace") if node.text else ""
 
         start = node.start_byte
@@ -211,21 +210,16 @@ class TreeSitterParser(IParser):
         body_end = body_node.end_byte
         end = node.end_byte
 
-        # Text before body + stub + text after body (e.g. closing brace)
         prefix = source[start:body_start].decode("utf-8", errors="replace")
         suffix = source[body_end:end].decode("utf-8", errors="replace")
         return prefix + config.stub_suffix + suffix
 
     def _find_body(self, node: Node, config: LanguageConfig) -> Optional[Node]:
-        # Try named fields first
         for field_name in config.body_fields:
             body = node.child_by_field_name(field_name)
             if body:
                 return body
-
-        # Try fallback node types
         for child in node.children:
             if child.type in config.fallback_bodies:
                 return child
-
         return None

@@ -1,51 +1,53 @@
-import asyncio
 import logging
-import shutil
+from pathlib import Path
+from typing import Optional
+
 from .base import IDiscoveryProvider
-from ...core.constants import DEFAULT_SUBPROCESS_TIMEOUT
+from ...parsers.tree_sitter import TreeSitterParser
+from ...core.utils import find_directory_upwards
 
 logger = logging.getLogger(__name__)
 
 
 class GoDiscoveryProvider(IDiscoveryProvider):
-    """API discovery for Go packages using standard 'go doc'."""
+    """API discovery for Go modules."""
+
+    def __init__(self, parser: Optional[TreeSitterParser] = None):
+        self.parser = parser or TreeSitterParser()
 
     async def extract_api(self, library_name: str) -> str:
         """
-        Extracts Go API using 'go doc -all <library_name>'.
+        Extracts Go API by finding go.mod and parsing exported symbols.
         """
-        go_bin = shutil.which("go")
-        if not go_bin:
-            return "Error: 'go' executable not found. Please ensure Go is installed and in PATH."
+        mod_path = find_directory_upwards(Path("."), "go.mod")
+        if not mod_path:
+            return f"Error: Could not find go.mod for module '{library_name}'."
 
-        logger.info("Running 'go doc -all %s'...", library_name)
-        try:
-            process = await asyncio.create_subprocess_exec(
-                go_bin,
-                "doc",
-                "-all",
-                library_name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=DEFAULT_SUBPROCESS_TIMEOUT
-            )
+        root = mod_path.parent
+        main_go = root / "main.go"
 
-            if process.returncode != 0:
-                err_msg = stderr.decode().strip()
-                if "not found" in err_msg or "cannot find" in err_msg:
-                    return (
-                        f"Error: Go package '{library_name}' not found.\n"
-                        "Action: If this is a third-party library, try running 'go mod download' in your project."
-                    )
-                return f"Error: 'go doc' failed: {err_msg}"
+        output = [f"# Public API for Go Module '{library_name}':"]
 
-            output = stdout.decode().strip()
-            if not output:
-                return f"No documentation found for Go package '{library_name}'."
+        target_files = [main_go] + list(root.glob("*.go"))
+        seen = set()
 
-            return f"# Public API for Go Package '{library_name}':\n\n{output}"
+        for file_path in target_files:
+            if not file_path.exists() or file_path in seen:
+                continue
+            seen.add(file_path)
 
-        except Exception as e:
-            return f"Failed to extract Go API: {e}"
+            try:
+                units = await self.parser.distill_file(str(file_path))
+                # Go exports are uppercase
+                exported = [u for u in units if u.name[0].isupper()]
+                if exported:
+                    output.append(f"\n## From {file_path.name}:")
+                    for u in exported[:20]:
+                        output.append(f"- **{u.kind.value.capitalize()}: {u.name}**")
+                        if u.docstring:
+                            output.append(f"  *({u.docstring.splitlines()[0]})*")
+                        output.append(f"  `{u.signature}`")
+            except Exception as e:
+                logger.debug("Failed to parse %s: %s", file_path, e)
+
+        return "\n".join(output[:150])
