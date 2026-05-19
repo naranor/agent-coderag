@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, AsyncMock
 
 from code_rag.core.manager import CodeRAGManager
 from code_rag.storage.duckdb_impl import DuckDBStorage
-from code_rag.parsers.ast_index import AstIndexParser
+from code_rag.parsers.multi_parser import MultiParser
 from code_rag.intelligence.embedder import Embedder
 from code_rag.intelligence.distiller import Distiller
 from code_rag.core.models import UnitKind, KnowledgeUnit
@@ -33,7 +33,7 @@ async def test_coderag_sync_and_search(temp_db):
     storage = DuckDBStorage(temp_db, embedder=mock_embedder)
 
     # 3. Setup Mock Parser (simulates ast-index output)
-    mock_parser = MagicMock(spec=AstIndexParser)
+    mock_parser = MagicMock(spec=MultiParser)
     test_unit = KnowledgeUnit(
         id="test_file.py:test_func",
         kind=UnitKind.FUNCTION,

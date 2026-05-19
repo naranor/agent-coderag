@@ -18,7 +18,7 @@ class TestDistillerConfig:
         config = DistillerConfig()
         assert config.model == "auto"
         assert config.api_base == "http://localhost:8081/api/v1"
-        assert config.api_key == "sk-not-required"
+        assert config.api_key is None
         assert config.provider == "openai"
         assert config.temperature == 0.0
 

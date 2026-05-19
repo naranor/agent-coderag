@@ -1,5 +1,4 @@
 import pytest
-import numpy as np
 import os
 import sys
 from pathlib import Path
@@ -10,6 +9,7 @@ from code_rag.intelligence.embedder import (
     get_default_model_dir,
     get_global_dir,
 )
+from code_rag.core.exceptions import IntelligenceError
 
 
 class TestEmbedder:
@@ -22,22 +22,24 @@ class TestEmbedder:
             assert embedder.session is None
 
     def test_embedder_init_invalid_path(self):
-        embedder = Embedder(model_path="/nonexistent/path/model.onnx")
-        assert embedder.session is None
+        # We patch exists to return False for the model path
+        with patch("pathlib.Path.exists", return_value=False):
+            embedder = Embedder(model_path="/nonexistent/path/model.onnx")
+            assert embedder.session is None
 
-    def test_embed_no_session_returns_zeros(self):
+    def test_embed_no_session_raises_error(self):
         with patch("pathlib.Path.exists", return_value=False):
             embedder = Embedder(model_path=None)
-            result = embedder.embed(["test text", "another text"])
-            assert result.shape == (2, 384)
-            assert np.all(result == 0)
+            with pytest.raises(IntelligenceError) as exc:
+                embedder.embed(["test text", "another text"])
+            assert "Embedder not initialized" in str(exc.value)
 
-    def test_embed_single_text(self):
+    def test_embed_single_text_raises_error(self):
         with patch("pathlib.Path.exists", return_value=False):
             embedder = Embedder(model_path=None)
-            result = embedder.embed(["single text"])
-            assert result.shape == (1, 384)
-            assert np.all(result == 0)
+            with pytest.raises(IntelligenceError) as exc:
+                embedder.embed(["single text"])
+            assert "Embedder not initialized" in str(exc.value)
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Linux-specific path handling")
     def test_get_global_dir_posix_default(self):

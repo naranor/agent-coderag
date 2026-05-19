@@ -1,8 +1,10 @@
 import logging
 import json
+from typing import Optional
 import litellm
 from pydantic import BaseModel
 from ..core.interfaces import IIntelligence
+from ..core.constants import LLM_REQUEST_TIMEOUT
 from .embedder import get_global_dir
 
 logger = logging.getLogger(__name__)
@@ -11,7 +13,7 @@ logger = logging.getLogger(__name__)
 class DistillerConfig(BaseModel):
     model: str = "auto"
     api_base: str = "http://localhost:8081/api/v1"
-    api_key: str = "sk-not-required"
+    api_key: Optional[str] = None
     provider: str = "openai"
     temperature: float = 0.0
 
@@ -74,7 +76,7 @@ SUMMARY:
             api_base=self.config.api_base,
             api_key=self.config.api_key,
             temperature=self.config.temperature,
-            timeout=30,
+            timeout=LLM_REQUEST_TIMEOUT,
             custom_llm_provider=self.config.provider,
         )
 

@@ -5,6 +5,8 @@ from typing import List, Optional
 from pathlib import Path
 import onnxruntime as ort
 from tokenizers import Tokenizer
+from ..core.constants import MAX_TOKEN_LENGTH, PAD_ID, PAD_TOKEN
+from ..core.exceptions import IntelligenceError
 
 logger = logging.getLogger(__name__)
 
@@ -64,13 +66,16 @@ class Embedder:
         if os.path.exists(tokenizer_file):
             try:
                 self.tokenizer = Tokenizer.from_file(tokenizer_file)
-                self.tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")  # nosec B106
-                self.tokenizer.enable_truncation(max_length=512)
+                self.tokenizer.enable_padding(pad_id=PAD_ID, pad_token=PAD_TOKEN)  # nosec B106
+                self.tokenizer.enable_truncation(max_length=MAX_TOKEN_LENGTH)
                 logger.debug("Loaded tokenizer from %s", tokenizer_file)
             except Exception as e:
                 logger.error("Failed to load tokenizer from %s: %s", tokenizer_file, e)
+                raise IntelligenceError(f"Failed to load tokenizer: {e}") from e
         else:
-            logger.error("tokenizer.json not found near %s", self.model_path)
+            err_msg = f"tokenizer.json not found near {self.model_path}"
+            logger.error(err_msg)
+            raise IntelligenceError(err_msg)
 
     def _init_session(self):
         if not self.model_path:
@@ -83,30 +88,45 @@ class Embedder:
             logger.info("ONNX session initialized with model: %s", self.model_path)
         except Exception as e:
             logger.error("Failed to initialize ONNX session: %s", e)
+            raise IntelligenceError(f"Failed to initialize ONNX session: {e}") from e
 
     def embed(self, texts: List[str]) -> np.ndarray:
         if not self.session or not self.tokenizer:
-            return np.zeros((len(texts), 384), dtype=np.float32)
-
-        encodings = self.tokenizer.encode_batch(texts)
-        input_ids = np.array([e.ids for e in encodings], dtype=np.int64)
-        attention_mask = np.array([e.attention_mask for e in encodings], dtype=np.int64)
-
-        inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
-        model_inputs = [i.name for i in self.session.get_inputs()]
-        if "token_type_ids" in model_inputs:
-            inputs["token_type_ids"] = np.array(
-                [e.type_ids for e in encodings], dtype=np.int64
+            raise IntelligenceError(
+                "Embedder not initialized. Please ensure models are downloaded by running 'agent-coderag setup'."
             )
 
-        outputs = self.session.run(None, inputs)
-        embeddings = self._mean_pooling(outputs[0], attention_mask)
-        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-        norms = np.clip(norms, a_min=1e-12, a_max=None)
-        return embeddings / norms
+        try:
+            encodings = self.tokenizer.encode_batch(texts)
+            input_ids = np.array([e.ids for e in encodings], dtype=np.int64)
+            attention_mask = np.array(
+                [e.attention_mask for e in encodings], dtype=np.int64
+            )
+
+            inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
+            model_inputs = [i.name for i in self.session.get_inputs()]
+            if "token_type_ids" in model_inputs:
+                inputs["token_type_ids"] = np.array(
+                    [e.type_ids for e in encodings], dtype=np.int64
+                )
+
+            outputs = self.session.run(None, inputs)
+            embeddings = self._mean_pooling(outputs[0], attention_mask)
+            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            norms = np.clip(norms, a_min=1e-12, a_max=None)
+            return embeddings / norms
+        except Exception as e:
+            logger.error("Embedding generation failed: %s", e)
+            raise IntelligenceError(f"Failed to generate embeddings: {e}") from e
 
     def _mean_pooling(self, last_hidden_state, attention_mask):
         input_mask_expanded = np.expand_dims(attention_mask, -1).astype(float)
         sum_embeddings = np.sum(last_hidden_state * input_mask_expanded, axis=1)
         sum_mask = np.clip(input_mask_expanded.sum(axis=1), a_min=1e-9, a_max=None)
         return sum_embeddings / sum_mask
+
+    def close(self):
+        """Releases the ONNX Runtime session and resources."""
+        if self.session:
+            self.session = None
+            logger.info("Embedder resources released.")

@@ -104,9 +104,9 @@ const arrow = (x) => {
 
         # Arrow Function
         arrow_unit = next(
-            u for u in units if u.kind == "function" and u.name == "anonymous"
+            u for u in units if u.kind == "function" and u.name == "arrow"
         )
-        assert f"{temp_path}:anonymous" in arrow_unit.id
+        assert f"{temp_path}:arrow" == arrow_unit.id
         assert "=> { ... }" in normalize_ws(arrow_unit.signature)
         assert "return x * 2" in arrow_unit.metadata["raw_code"]
 
@@ -117,15 +117,15 @@ const arrow = (x) => {
 @pytest.mark.asyncio
 async def test_missing_grammar():
     parser = TreeSitterParser()
-    # .rs is rust, we didn't install tree-sitter-rust
-    with tempfile.NamedTemporaryFile(suffix=".rs", delete=False) as f:
-        f.write(b"fn main() {}")
+    # .rb is ruby, we didn't install tree-sitter-ruby
+    with tempfile.NamedTemporaryFile(suffix=".rb", delete=False) as f:
+        f.write(b"def hello; end")
         temp_path = f.name
 
     try:
         with pytest.raises(GrammarNotFoundError) as excinfo:
             await parser.distill_file(temp_path)
         assert "[MISSING DEPENDENCY]" in str(excinfo.value)
-        assert "tree_sitter_rust" in str(excinfo.value)
+        assert "tree_sitter_ruby" in str(excinfo.value)
     finally:
         os.unlink(temp_path)

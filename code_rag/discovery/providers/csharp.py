@@ -1,12 +1,19 @@
 import logging
+import re
 from pathlib import Path
 from typing import Dict, Optional
 
 import defusedxml.ElementTree as element_tree
 import dnfile
 from .base import IDiscoveryProvider
+from ...core.exceptions import DiscoveryError
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_version(path: Path):
+    parts = re.findall(r"\d+", path.name)
+    return tuple(map(int, parts))
 
 
 class CSharpDiscoveryProvider(IDiscoveryProvider):
@@ -22,9 +29,8 @@ class CSharpDiscoveryProvider(IDiscoveryProvider):
         dll_path, xml_path = self._find_artifacts(library_name)
 
         if not dll_path:
-            return (
-                f"Error: Could not find DLL for C# library '{library_name}' "
-                "in NuGet cache."
+            raise DiscoveryError(
+                f"Could not find DLL for C# library '{library_name}' in NuGet cache."
             )
 
         output = [
@@ -38,7 +44,7 @@ class CSharpDiscoveryProvider(IDiscoveryProvider):
         try:
             pe = dnfile.dnPE(str(dll_path))
             if not pe.net or not pe.net.mdtables:
-                return f"Error: '{dll_path.name}' is not a valid .NET assembly."
+                raise DiscoveryError(f"'{dll_path.name}' is not a valid .NET assembly.")
 
             # Map for easier lookup: FullName -> Summary
             types_found = 0
@@ -72,7 +78,11 @@ class CSharpDiscoveryProvider(IDiscoveryProvider):
             return "\n".join(output[:100])
 
         except Exception as e:
-            return f"Failed to extract C# API from {dll_path.name}: {e}"
+            if isinstance(e, DiscoveryError):
+                raise
+            raise DiscoveryError(
+                f"Failed to extract C# API from {dll_path.name}: {e}"
+            ) from e
 
     def _find_artifacts(self, lib_name: str) -> tuple[Optional[Path], Optional[Path]]:
         """Searches for DLL and XML in NuGet cache."""
@@ -84,8 +94,8 @@ class CSharpDiscoveryProvider(IDiscoveryProvider):
         # Search for library folder (case-insensitive)
         for lib_dir in nuget_cache.glob("*"):
             if lib_dir.name.lower() == lib_name.lower():
-                # Find latest version
-                versions = sorted(lib_dir.glob("*"))
+                # Find latest version using semantic-aware sorting
+                versions = sorted(lib_dir.glob("*"), key=_parse_version)
                 if not versions:
                     continue
                 latest = versions[-1]
