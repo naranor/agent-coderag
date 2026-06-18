@@ -106,16 +106,14 @@ class CodeRAGManager:
         """
         Resolves Gradle dependencies using a temporary init script.
         """
-        # 1. Find gradle executable (wrapper preferred)
-        gradle_wrapper = root / ("gradlew.bat" if os.name == "nt" else "gradlew")
-        gradle_bin: Optional[str] = None
-        if gradle_wrapper.exists():
-            gradle_bin = str(gradle_wrapper.resolve())
-        else:
-            gradle_bin = shutil.which("gradle")
+        # GHSA-wg5p-8h9p-3mr7: Arbitrary Code Execution vulnerability via repository-controlled gradlew.
+        # We must ONLY use the system-installed gradle binary.
+        gradle_bin: Optional[str] = shutil.which("gradle")
 
         if not gradle_bin:
-            logger.warning("gradle not found, skipping dependency sync")
+            logger.warning(
+                "System 'gradle' executable not found in PATH. Skipping dependency sync to avoid executing untrusted repository wrappers."
+            )
             return
 
         # Validate path
