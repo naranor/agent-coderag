@@ -1,3 +1,9 @@
+## [1.3.1] - 2026-06-18
+
+### Security
+- **Critical:** Fixed Arbitrary Code Execution (ACE) vulnerability ([GHSA-wg5p-8h9p-3mr7](https://github.com/naranor/agent-coderag/security/advisories/GHSA-wg5p-8h9p-3mr7)) triggered during Gradle dependency discovery. `agent-coderag sync` now strictly enforces the use of the system-installed `gradle` binary and ignores local wrapper scripts to prevent executing untrusted repository code.
+
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
