@@ -61,7 +61,11 @@ async def sync_cmd(args):
     if args.path:
         args.path = str(validate_path(args.path))
 
-    manager = get_manager(args.db, args.onnx)
+    manager = get_manager(
+        args.db,
+        args.onnx,
+        allow_build_execution=getattr(args, "allow_build_execution", False),
+    )
     try:
         ignore_spec = load_ignore_patterns()
 
@@ -244,7 +248,11 @@ async def rebuild_cmd(args):
     await sync_cmd(args)
 
 
-def get_manager(db_path: str, onnx_path: Optional[str] = None) -> CodeRAGManager:
+def get_manager(
+    db_path: str,
+    onnx_path: Optional[str] = None,
+    allow_build_execution: bool = False,
+) -> CodeRAGManager:
     # 1. Setup Intelligence
     config = DistillerConfig.load()
     distiller = Distiller(config)
@@ -256,7 +264,12 @@ def get_manager(db_path: str, onnx_path: Optional[str] = None) -> CodeRAGManager
     # 3. Setup Parser
     parser = MultiParser()
 
-    return CodeRAGManager(storage, parser, distiller)
+    return CodeRAGManager(
+        storage,
+        parser,
+        distiller,
+        allow_build_execution=allow_build_execution,
+    )
 
 
 def main():
@@ -277,6 +290,11 @@ def main():
     sync.add_argument("path", nargs="?", help="File or directory to index.")
     sync.add_argument("--all", action="store_true", help="Index all supported files.")
     sync.add_argument("--force", action="store_true", help="Force re-distillation.")
+    sync.add_argument(
+        "--allow-build-execution",
+        action="store_true",
+        help="Execute repository Maven/Gradle build files during dependency sync (trusted projects only).",
+    )
 
     # Search
     search = subparsers.add_parser("search", help="Semantic search.")
