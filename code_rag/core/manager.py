@@ -25,11 +25,13 @@ class CodeRAGManager:
         parser: IParser,
         intelligence: IIntelligence,
         max_concurrency: int = MAX_CONCURRENT_TASKS,
+        allow_build_execution: bool = False,
     ):
         self.storage = storage
         self.parser = parser
         self.intelligence = intelligence
         self.max_concurrency = max_concurrency
+        self.allow_build_execution = allow_build_execution
         self.semaphore = asyncio.Semaphore(max_concurrency)
         self.discovery = DiscoveryManager(storage=storage)
 
@@ -37,6 +39,14 @@ class CodeRAGManager:
         """
         Resolves project dependencies (Maven/Gradle) and caches JAR paths.
         """
+        if not self.allow_build_execution:
+            logger.warning(
+                "Dependency sync is disabled by default because Maven/Gradle "
+                "build files are executable repository code. Use the explicit "
+                "allow_build_execution option only for trusted projects."
+            )
+            return
+
         root = Path(project_path)
         pom_xml = root / "pom.xml"
         gradle_files = list(root.glob("build.gradle*"))
