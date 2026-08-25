@@ -27,7 +27,7 @@ classifiers = [
 dependencies = [
     "duckdb",
     "numpy",
-    "litellm",
+    "litellm==1.97.0",
     "onnxruntime",
     "tokenizers",
     "pydantic",
