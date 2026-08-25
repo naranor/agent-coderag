@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-coderag"
-version = "1.3.1"
+version = "1.3.2"
 description = "Lightweight semantic code search and distillation utility for AI coding agents. It solves the API knowledge gap via real-time local signature extraction and intent analysis without PyTorch. Optimized for token efficiency, it compresses codebase context into compact semantic summaries stored in a local DuckDB vector similarity index."
 readme = "README.md"
 requires-python = ">=3.10"
