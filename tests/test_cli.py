@@ -87,6 +87,32 @@ class TestCLISync:
                 sys.stdout = old_stdout
 
     @pytest.mark.asyncio
+    async def test_sync_cmd_propagates_build_execution_flag(self, tmp_path):
+        """Test the --allow-build-execution opt-in reaches the manager."""
+        mock_manager = MagicMock()
+        mock_manager.sync_project = AsyncMock()
+        mock_manager.sync_dependencies = AsyncMock()
+        mock_manager.close = AsyncMock()
+
+        with patch(
+            "code_rag.entry.cli.get_manager", return_value=mock_manager
+        ) as mock_get_manager:
+            args = argparse.Namespace(
+                db=str(tmp_path / "test.db"),
+                onnx=None,
+                verbose=False,
+                json=False,
+                path=None,
+                all=True,
+                force=False,
+                allow_build_execution=True,
+            )
+
+            await cli.sync_cmd(args)
+
+            assert mock_get_manager.call_args.kwargs["allow_build_execution"] is True
+
+    @pytest.mark.asyncio
     async def test_sync_cmd_file(self, tmp_path):
         """Test sync command for a single file."""
         mock_manager = MagicMock()
