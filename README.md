@@ -78,7 +78,7 @@ If you don't configure an LLM provider, agent-coderag works in **100% Offline Mo
 # Index your entire project (respects .gitignore automatically)
 agent-coderag sync --all
 
-# Trusted Java projects only: allow Maven/Gradle dependency resolution
+# Trusted Maven/Gradle projects only: allow dependency resolution
 agent-coderag sync --all --allow-build-execution
 
 # Perform a semantic search
