@@ -19,7 +19,7 @@ agent-coderag search "<keywords>"
 ```
 
 ### 2. Knowledge Synchronization
-Update the index after code changes. The default command never executes Maven
+Update the index after code changes. By default, dependency synchronization never executes Maven
 or Gradle build files.
 ```bash
 agent-coderag sync --all
