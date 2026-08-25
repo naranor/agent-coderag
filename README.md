@@ -78,9 +78,16 @@ If you don't configure an LLM provider, agent-coderag works in **100% Offline Mo
 # Index your entire project (respects .gitignore automatically)
 agent-coderag sync --all
 
+# Trusted Java projects only: allow Maven/Gradle dependency resolution
+agent-coderag sync --all --allow-build-execution
+
 # Perform a semantic search
 agent-coderag search "how does the authentication middleware work?"
 ```
+
+Dependency build execution is disabled by default. Maven and Gradle build files
+can execute repository-controlled code, so use `--allow-build-execution` only
+after you have reviewed and trust the project.
 
 ### API Discovery
 Verify external library signatures without leaving the CLI:
@@ -101,7 +108,7 @@ agent-coderag api fmt
 | Language | Method | Discovery Source |
 | :--- | :--- | :--- |
 | **Python** | 3-Stage Probe | `.pyi` stubs, static source, or runtime `inspect` |
-| **Java** | Bytecode Reflection | JARs resolved via Maven (`pom.xml`) or Gradle |
+| **Java** | Bytecode Reflection | JARs resolved via Maven or Gradle with explicit `--allow-build-execution` opt-in |
 | **Go** | Standard Tooling | Native `go doc -all` integration |
 | **TypeScript/JS** | Declaration Maps | `.d.ts` files from `node_modules` or `@types` |
 | **Rust** | Registry Analysis | Source code from Cargo registry via `cargo metadata` |
