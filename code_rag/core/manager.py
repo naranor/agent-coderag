@@ -39,6 +39,13 @@ class CodeRAGManager:
         """
         Resolves project dependencies (Maven/Gradle) and caches JAR paths.
         """
+        root = Path(project_path)
+        pom_xml = root / "pom.xml"
+        gradle_files = list(root.glob("build.gradle*"))
+
+        if not pom_xml.exists() and not gradle_files:
+            return
+
         if not self.allow_build_execution:
             logger.warning(
                 "Dependency sync is disabled by default because Maven/Gradle "
@@ -46,10 +53,6 @@ class CodeRAGManager:
                 "allow_build_execution option only for trusted projects."
             )
             return
-
-        root = Path(project_path)
-        pom_xml = root / "pom.xml"
-        gradle_files = list(root.glob("build.gradle*"))
 
         if pom_xml.exists():
             await self._sync_maven(root)

@@ -1,6 +1,8 @@
-import pytest
+import logging
 import os
 from unittest.mock import MagicMock, AsyncMock, patch
+
+import pytest
 
 from code_rag.core.manager import CodeRAGManager
 from code_rag.core.interfaces import IStorage, IParser, IIntelligence
@@ -44,6 +46,7 @@ class TestManagerDetailed:
     @pytest.mark.asyncio
     async def test_sync_dependencies_maven(self, manager, tmp_path):
         """Test Maven dependency synchronization."""
+        manager.allow_build_execution = True
         (tmp_path / "pom.xml").write_text("<project></project>")
 
         with patch("shutil.which", return_value="/usr/bin/mvn"), patch(
@@ -68,6 +71,7 @@ class TestManagerDetailed:
     @pytest.mark.asyncio
     async def test_sync_dependencies_gradle(self, manager, tmp_path):
         """Test Gradle dependency synchronization."""
+        manager.allow_build_execution = True
         (tmp_path / "build.gradle").write_text("apply plugin: 'java'")
 
         with patch("shutil.which", return_value="/usr/bin/gradle"), patch(
@@ -84,6 +88,31 @@ class TestManagerDetailed:
             manager.storage.set_dependency_path.assert_called_with(
                 "lib-gradle", "lib-gradle.jar"
             )
+
+    @pytest.mark.asyncio
+    async def test_sync_dependencies_non_java_does_not_warn(
+        self, manager, tmp_path, caplog
+    ):
+        """Test dependency synchronization stays quiet without build files."""
+        with caplog.at_level(logging.WARNING):
+            await manager.sync_dependencies(str(tmp_path))
+
+        assert not caplog.records
+
+    @pytest.mark.asyncio
+    async def test_sync_dependencies_requires_build_execution_opt_in(
+        self, manager, tmp_path, caplog
+    ):
+        """Test repository build files are not executed without explicit opt-in."""
+        (tmp_path / "pom.xml").write_text("<project></project>")
+
+        with caplog.at_level(logging.WARNING), patch(
+            "asyncio.create_subprocess_exec"
+        ) as mock_exec:
+            await manager.sync_dependencies(str(tmp_path))
+
+        mock_exec.assert_not_called()
+        assert "Dependency sync is disabled by default" in caplog.text
 
     @pytest.mark.asyncio
     async def test_sync_file_delta_logic(self, manager, mock_storage, mock_parser):
