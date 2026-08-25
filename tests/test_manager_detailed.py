@@ -38,11 +38,21 @@ def manager(mock_storage, mock_parser, mock_intelligence):
     return CodeRAGManager(mock_storage, mock_parser, mock_intelligence)
 
 
+@pytest.fixture
+def manager_with_build_execution(mock_storage, mock_parser, mock_intelligence):
+    return CodeRAGManager(
+        mock_storage,
+        mock_parser,
+        mock_intelligence,
+        allow_build_execution=True,
+    )
+
+
 class TestManagerDetailed:
     """Detailed unit tests for CodeRAGManager to increase coverage."""
 
     @pytest.mark.asyncio
-    async def test_sync_dependencies_maven(self, manager, tmp_path):
+    async def test_sync_dependencies_maven(self, manager_with_build_execution, tmp_path):
         """Test Maven dependency synchronization."""
         (tmp_path / "pom.xml").write_text("<project></project>")
 
@@ -58,15 +68,21 @@ class TestManagerDetailed:
             cp_file = tmp_path / ".coderag_cp.txt"
             cp_file.write_text(f"lib1.jar{os.pathsep}lib2-1.0.jar")
 
-            await manager.sync_dependencies(str(tmp_path))
+            await manager_with_build_execution.sync_dependencies(str(tmp_path))
 
             # Verify storage calls
-            assert manager.storage.set_dependency_path.call_count == 2
-            manager.storage.set_dependency_path.assert_any_call("lib1", "lib1.jar")
-            manager.storage.set_dependency_path.assert_any_call("lib2", "lib2-1.0.jar")
+            assert (
+                manager_with_build_execution.storage.set_dependency_path.call_count == 2
+            )
+            manager_with_build_execution.storage.set_dependency_path.assert_any_call(
+                "lib1", "lib1.jar"
+            )
+            manager_with_build_execution.storage.set_dependency_path.assert_any_call(
+                "lib2", "lib2-1.0.jar"
+            )
 
     @pytest.mark.asyncio
-    async def test_sync_dependencies_gradle(self, manager, tmp_path):
+    async def test_sync_dependencies_gradle(self, manager_with_build_execution, tmp_path):
         """Test Gradle dependency synchronization."""
         (tmp_path / "build.gradle").write_text("apply plugin: 'java'")
 
@@ -79,11 +95,35 @@ class TestManagerDetailed:
             mock_process.returncode = 0
             mock_exec.return_value = mock_process
 
-            await manager.sync_dependencies(str(tmp_path))
+            await manager_with_build_execution.sync_dependencies(str(tmp_path))
 
-            manager.storage.set_dependency_path.assert_called_with(
+            manager_with_build_execution.storage.set_dependency_path.assert_called_with(
                 "lib-gradle", "lib-gradle.jar"
             )
+
+    @pytest.mark.asyncio
+    async def test_sync_dependencies_skips_without_build_files(
+        self, manager, tmp_path, caplog
+    ):
+        """Non-Java projects should not warn when build execution is disabled."""
+        with caplog.at_level("WARNING"):
+            await manager.sync_dependencies(str(tmp_path))
+
+        assert not caplog.records
+        manager.storage.set_dependency_path.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sync_dependencies_blocked_without_opt_in(
+        self, manager, tmp_path, caplog
+    ):
+        """Maven/Gradle sync requires explicit opt-in for trusted projects."""
+        (tmp_path / "pom.xml").write_text("<project></project>")
+
+        with caplog.at_level("WARNING"):
+            await manager.sync_dependencies(str(tmp_path))
+
+        assert any("Dependency sync is disabled by default" in r.message for r in caplog.records)
+        manager.storage.set_dependency_path.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_sync_file_delta_logic(self, manager, mock_storage, mock_parser):
