@@ -19,9 +19,16 @@ agent-coderag search "<keywords>"
 ```
 
 ### 2. Knowledge Synchronization
-Update the index after code changes.
+Update the index after code changes. The default command never executes Maven
+or Gradle build files.
 ```bash
-agent-coderag sync
+agent-coderag sync --all
+```
+
+For a reviewed and trusted Java project, dependency resolution can be enabled
+explicitly:
+```bash
+agent-coderag sync --all --allow-build-execution
 ```
 
 ### 3. Library API Discovery
@@ -35,9 +42,10 @@ agent-coderag api <library_name>
 1. **Think Semantically**: Before using `grep_search`, try `agent-coderag search "<your intent>"`.
 2. **Context Efficiency**: Before using external library call `agent-coderag api <library_name>` to collect information about the api of library.
    RAG results give you the `Intent` (distilled summary) of functions. Use this to identify which file to read with `read_file` instead of reading multiple files blindly.
-3. **Always Sync**: Every time you successfully call `replace` or `write_file`, run `agent-coderag sync` to keep your "memory" up to date.
+3. **Always Sync**: Every time you successfully call `replace` or `write_file`, run `agent-coderag sync --all` to keep your "memory" up to date. Do not add `--allow-build-execution` unless the user explicitly authorizes build execution for a reviewed, trusted repository.
 4. **Impact Check**: If changing a core method, search for it in RAG first to see its described role and search for callers via `ast-index callers`.
 
 ## 🚫 RESTRICTIONS
 - Do NOT index non-code files or huge binary data.
+- Do NOT execute Maven or Gradle build files for untrusted repositories.
 - The system automatically ignores `tests/`, `MagicMock/`, and paths in `.gitignore`.
