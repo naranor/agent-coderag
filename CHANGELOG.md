@@ -1,3 +1,15 @@
+## [1.3.2] - 2026-08-25
+
+### Security
+- Made Maven and Gradle dependency execution opt-in through `--allow-build-execution`, preventing automatic execution of repository-controlled build logic.
+
+### Fixed
+- Avoided dependency-sync warnings for projects without Maven or Gradle build files.
+- Pinned LiteLLM to `1.96.2` to preserve Python 3.10 compatibility.
+
+### Documentation
+- Documented the trusted-project build execution opt-in and updated the bundled CodeRAG intelligence skill.
+
 ## [1.3.1] - 2026-06-18
 
 ### Security
