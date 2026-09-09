@@ -64,7 +64,7 @@ jobs:
         pip install .
         pip install prospector[with_mypy,with_bandit,with_vulture]
         # Install grammars and types for linting
-        pip install tree-sitter-python tree-sitter-javascript types-aiofiles
+        pip install tree-sitter-python tree-sitter-javascript types-aiofiles types-requests
 
     - name: Run Prospector audit
       run: |

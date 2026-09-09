@@ -19,7 +19,7 @@ class CodeRAGManager:
     Orchestrates the RAG workflow: parsing, distillation, and storage.
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         storage: IStorage,
         parser: IParser,
