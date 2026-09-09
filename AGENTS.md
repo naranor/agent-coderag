@@ -9,14 +9,16 @@ You are an AI Coding Agent. Use **CodeRAG** to explore the codebase efficiently 
 4.  **Verified Delivery Protocol (VDP)**: Never commit or push without shadowing CI. Run exact commands from `.github/workflows/ci.yml` locally. Use of `--no-verify` is strictly forbidden.
 
 ## CI Shadowing Commands
-Before commit, you MUST pass:
+**Always use the project `venv/`** (never system Python). Windows: `venv\Scripts\...`; Unix: `venv/bin/...`.
+
+Before commit, you MUST pass (via venv):
 ```bash
 # Linting
 prospector code_rag --profile .prospector.yaml --with-tool mypy --with-tool bandit
 vulture code_rag --min-confidence 80 --exclude code_rag/core/models.py
 
 # Testing (with coverage check)
-pytest --cov --cov-report=term-missing --cov-fail-under=90
+python -m pytest --cov --cov-report=term-missing --cov-fail-under=90
 ```
 
 ## Usage Examples

@@ -1,3 +1,16 @@
+## [1.3.3] - 2026-09-09
+
+### Added
+- Public async library API: `from code_rag import CodeRAG` with typed results for sync, search, API discovery, config, setup, and rebuild.
+- Shared service layer under `code_rag.services` so CLI and library share the same business logic.
+
+### Changed
+- CLI is now a thin adapter over the shared services (behavior and JSON output preserved).
+- Added `requests` as a declared runtime dependency for setup HTTP checks.
+
+### Documentation
+- Documented library usage in README with an async example.
+
 ## [1.3.2] - 2026-08-25
 
 ### Security
