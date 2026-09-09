@@ -1,6 +1,5 @@
 import logging
 import asyncio
-import os
 import argparse
 import sys
 import json
@@ -15,49 +14,50 @@ from ..storage.duckdb_impl import DuckDBStorage
 from ..parsers.multi_parser import MultiParser
 from ..intelligence.distiller import Distiller, DistillerConfig
 from ..intelligence.embedder import Embedder, get_global_dir
-from ..parsers.languages import EXTENSION_TO_LANGUAGE
 from ..core.utils import validate_path
-from ..core.exceptions import CodeRAGError, DiscoveryError
+from ..core.exceptions import CodeRAGError
+from ..services import sync as sync_service
+from ..services.discovery_api import run_api
+from ..services.search import run_search
+from ..services.setup import run_setup
 
 logger = logging.getLogger(__name__)
 
+# Legacy compatibility surface: these names are imported/patched by existing
+# integrations and tests, so they must stay resolvable on this module.
+__all__ = [
+    "get_manager",
+    "load_ignore_patterns",
+    "should_index",
+    "sync_cmd",
+    "search_cmd",
+    "api_cmd",
+    "config_cmd",
+    "setup_cmd",
+    "rebuild_cmd",
+    "DistillerConfig",
+    "Embedder",
+    "DuckDBStorage",
+    "MultiParser",
+    "Distiller",
+    "get_global_dir",
+    "requests",
+    "validate_path",
+    "main",
+]
+
 
 def load_ignore_patterns() -> pathspec.PathSpec:
-    """Loads ignore patterns from .gitignore or defaults."""
-    lines = []
-    if os.path.exists(".gitignore"):
-        with open(".gitignore", "r", encoding="utf-8") as f:
-            lines = f.readlines()
-
-    common_excludes = [
-        "node_modules/",
-        "venv/",
-        ".venv/",
-        "__pycache__/",
-        ".git/",
-        ".idea/",
-        ".vscode/",
-        ".onnx",
-        ".db",
-        ".ai/",
-    ]
-    return pathspec.PathSpec.from_lines("gitignore", lines + common_excludes)
+    """Loads ignore patterns from the current directory's .gitignore or defaults."""
+    return sync_service.load_ignore_patterns(Path.cwd())
 
 
 def should_index(path: Path, ignore_spec: Optional[pathspec.PathSpec] = None) -> bool:
     """Filters files that should NOT be indexed."""
-    # Convert backslashes to forward slashes for cross-platform matching
-    path_str = str(path).replace(os.sep, "/")
-
-    # 1. Check against ignore spec (including .gitignore and common excludes)
-    if ignore_spec and ignore_spec.match_file(path_str):
-        return False
-
-    return path.suffix.lower() in EXTENSION_TO_LANGUAGE
+    return sync_service.should_index(path, ignore_spec)
 
 
 async def sync_cmd(args):
-    # Validate input path
     if args.path:
         args.path = str(validate_path(args.path))
 
@@ -67,39 +67,13 @@ async def sync_cmd(args):
         allow_build_execution=getattr(args, "allow_build_execution", False),
     )
     try:
-        ignore_spec = load_ignore_patterns()
-
-        # Task 2: Sync dependencies before indexing
-        try:
-            await manager.sync_dependencies(args.path or ".")
-        except DiscoveryError as de:
-            logger.warning("Dependency discovery failed: %s", de)
-
-        if args.path:
-            target_path = Path(args.path)
-            if target_path.is_file():
-                if should_index(target_path, ignore_spec):
-                    await manager.sync_file(str(target_path), force_distill=args.force)
-            else:
-                paths = [
-                    str(p)
-                    for p in target_path.rglob("*")
-                    if p.is_file() and should_index(p, ignore_spec)
-                ]
-
-                if args.verbose:
-                    logger.info("Indexing %d files...", len(paths))
-                await manager.sync_project(paths, force_distill=args.force)
-        elif args.all:
-            paths = [
-                str(p)
-                for p in Path(".").rglob("*")
-                if p.is_file() and should_index(p, ignore_spec)
-            ]
-
-            if args.verbose:
-                logger.info("Indexing %d files...", len(paths))
-            await manager.sync_project(paths, force_distill=args.force)
+        await sync_service.run_sync(
+            manager,
+            root=Path.cwd(),
+            path=args.path,
+            index_all=bool(args.all),
+            force=bool(args.force),
+        )
 
         if args.json:
             print(json.dumps({"status": "success", "indexed_files": "auto"}))
@@ -116,7 +90,7 @@ async def sync_cmd(args):
 async def search_cmd(args):
     manager = get_manager(args.db, args.onnx)
     try:
-        results = await manager.search(args.query, limit=args.limit)
+        results = await run_search(manager, args.query, limit=args.limit)
 
         if args.json:
             output = []
@@ -150,14 +124,12 @@ async def search_cmd(args):
 async def api_cmd(args):
     manager = get_manager(args.db, args.onnx)
     try:
-        # Default to python if not specified
-        lang = args.lang or "python"
-        api_report = await manager.discovery.extract_api(args.library, language=lang)
+        report = await run_api(manager, args.library, lang=args.lang)
 
         if args.json:
-            print(json.dumps({"library": args.library, "report": api_report}))
+            print(json.dumps({"library": report.library, "report": report.report}))
         else:
-            print(api_report)
+            print(report.report)
     except Exception as e:
         logger.error("API discovery failed: %s", e)
         if args.json:
@@ -200,40 +172,33 @@ def config_cmd(args):
 async def setup_cmd(args):
     """Downloads necessary local models."""
     global_dir = get_global_dir()
-    model_dir = global_dir / "models" / "mini-lm"
-    model_dir.mkdir(parents=True, exist_ok=True)
-
-    files = {
-        "model.onnx": "https://huggingface.co/naranor/all-MiniLM-L6-v2-onnx/resolve/main/model.onnx",
-        "tokenizer.json": "https://huggingface.co/naranor/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer.json",
-    }
 
     if not args.json:
         print(f"Setting up agent-coderag in {global_dir}...")
 
-    for name, url in files.items():
-        target_path = model_dir / name
-        if target_path.exists() and not args.force:
-            if not args.json:
-                print(f"  {name} already exists. Skipping.")
-            continue
-
-        if not args.json:
-            print(f"  Downloading {name}...")
-        tmp_path = target_path.with_suffix(".tmp")
-        try:
-            response = requests.get(url, stream=True, timeout=30)
-            response.raise_for_status()
-            with open(tmp_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            os.replace(tmp_path, target_path)
-        except Exception as e:
-            if tmp_path.exists():
-                tmp_path.unlink()
-            if not args.json:
-                print(f"  Error downloading {name}: {e}")
+    def _on_progress(event: str, name: str, error: Optional[BaseException]) -> None:
+        if args.json:
             return
+        if event == "skipped":
+            print(f"  {name} already exists. Skipping.")
+        elif event == "downloading":
+            print(f"  Downloading {name}...")
+        elif event == "error":
+            print(f"  Error downloading {name}: {error}")
+
+    try:
+        # Pass module-level requests.get so @patch("code_rag.entry.cli.requests.get")
+        # continues to intercept downloads in legacy CLI tests.
+        await run_setup(
+            force=args.force,
+            global_dir=global_dir,
+            on_progress=_on_progress,
+            http_get=requests.get,
+        )
+    except Exception:
+        # Legacy behaviour: per-file error already reported via on_progress;
+        # stop here without crashing or printing "Setup complete.".
+        return
 
     if not args.json:
         print("Setup complete.")
@@ -253,15 +218,16 @@ def get_manager(
     onnx_path: Optional[str] = None,
     allow_build_execution: bool = False,
 ) -> CodeRAGManager:
-    # 1. Setup Intelligence
+    """Wires a manager from the module-level components (legacy patch points).
+
+    Mirrors ``code_rag.services.factory.create_manager`` but resolves the
+    components through this module so existing CLI tests can substitute them.
+    """
     config = DistillerConfig.load()
     distiller = Distiller(config)
     embedder = Embedder(model_path=onnx_path)
 
-    # 2. Setup Storage
     storage = DuckDBStorage(db_path, embedder=embedder)
-
-    # 3. Setup Parser
     parser = MultiParser()
 
     return CodeRAGManager(

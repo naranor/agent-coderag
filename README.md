@@ -103,6 +103,21 @@ agent-coderag api fmt
 
 ---
 
+## Library Usage
+
+```python
+from code_rag import CodeRAG
+
+async def main():
+    async with CodeRAG(db="code_rag.db") as rag:
+        await rag.setup()
+        await rag.sync(index_all=True)
+        hits = await rag.search("authentication middleware", limit=5)
+        report = await rag.api("pydantic", lang="python")
+```
+
+---
+
 ## Supported Ecosystems (Discovery)
 
 | Language | Method | Discovery Source |

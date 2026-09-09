@@ -32,6 +32,7 @@ dependencies = [
     "tokenizers",
     "pydantic",
     "httpx",
+    "requests",
     "aiofiles",
     "pathspec",
     "tree-sitter",
