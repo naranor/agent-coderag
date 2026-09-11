@@ -5,7 +5,7 @@ from typing import Optional
 
 import pathspec
 
-from code_rag.api.models import SyncResult
+from code_rag.api.models import SyncFileError, SyncResult
 from code_rag.core.exceptions import DiscoveryError
 from code_rag.core.utils import validate_path
 from code_rag.parsers.languages import EXTENSION_TO_LANGUAGE
@@ -46,6 +46,14 @@ def should_index(path: Path, ignore_spec: Optional[pathspec.PathSpec] = None) ->
     return path.suffix.lower() in EXTENSION_TO_LANGUAGE
 
 
+def _result_from_failures(
+    indexed_files: int, failures: list[tuple[str, str]]
+) -> SyncResult:
+    errors = [SyncFileError(file=path, message=message) for path, message in failures]
+    status = "error" if errors else "success"
+    return SyncResult(status=status, indexed_files=indexed_files, errors=errors)
+
+
 async def run_sync(
     manager,
     *,
@@ -67,12 +75,15 @@ async def run_sync(
 
     ignore_spec = load_ignore_patterns(root)
     indexed_files = 0
+    failures: list[tuple[str, str]] = []
 
     if validated_path:
         target_path = Path(validated_path)
         if target_path.is_file():
             if should_index(target_path, ignore_spec):
-                await manager.sync_file(str(target_path), force_distill=force)
+                failures = await manager.sync_project(
+                    [str(target_path)], force_distill=force, index_all=index_all
+                )
                 indexed_files = 1
         else:
             paths = [
@@ -80,8 +91,10 @@ async def run_sync(
                 for p in target_path.rglob("*")
                 if p.is_file() and should_index(p, ignore_spec)
             ]
-            if paths:
-                await manager.sync_project(paths, force_distill=force)
+            if paths or index_all:
+                failures = await manager.sync_project(
+                    paths, force_distill=force, index_all=index_all
+                )
             indexed_files = len(paths)
     elif index_all:
         paths = [
@@ -89,11 +102,12 @@ async def run_sync(
             for p in root.rglob("*")
             if p.is_file() and should_index(p, ignore_spec)
         ]
-        if paths:
-            await manager.sync_project(paths, force_distill=force)
+        failures = await manager.sync_project(
+            paths, force_distill=force, index_all=index_all
+        )
         indexed_files = len(paths)
 
-    return SyncResult(status="success", indexed_files=indexed_files)
+    return _result_from_failures(indexed_files, failures)
 
 
 async def run_rebuild(manager, *, root: Path) -> SyncResult:

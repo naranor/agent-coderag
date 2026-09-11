@@ -102,12 +102,12 @@ class TestCLIDetailed:
     async def test_sync_cmd_json_success(self, tmp_path):
         mock_manager = MagicMock()
         mock_manager.sync_dependencies = AsyncMock()
-        mock_manager.sync_project = AsyncMock()
+        mock_manager.sync_project = AsyncMock(return_value=[])
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager), patch(
-            "code_rag.entry.cli.validate_path", return_value=tmp_path
-        ):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ), patch("code_rag.entry.cli.validate_path", return_value=tmp_path):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -134,7 +134,9 @@ class TestCLIDetailed:
         )
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -147,12 +149,101 @@ class TestCLIDetailed:
             old_stdout = sys.stdout
             sys.stdout = StringIO()
             try:
-                await cli.sync_cmd(args)
+                with pytest.raises(SystemExit) as exc:
+                    await cli.sync_cmd(args)
+                assert exc.value.code == 1
                 data = json.loads(sys.stdout.getvalue())
                 assert data["status"] == "error"
                 assert "Critical Failure" in data["message"]
             finally:
                 sys.stdout = old_stdout
+
+    @pytest.mark.asyncio
+    async def test_sync_cmd_human_error(self):
+        mock_manager = MagicMock()
+        mock_manager.sync_dependencies = AsyncMock(
+            side_effect=Exception("Critical Failure")
+        )
+        mock_manager.close = AsyncMock()
+
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
+            args = argparse.Namespace(
+                db="test.db",
+                onnx=None,
+                verbose=False,
+                json=False,
+                path=None,
+                all=True,
+                force=False,
+            )
+            old_stderr = sys.stderr
+            sys.stderr = StringIO()
+            try:
+                with pytest.raises(SystemExit) as exc:
+                    await cli.sync_cmd(args)
+                assert exc.value.code == 1
+                assert "Critical Failure" in sys.stderr.getvalue()
+            finally:
+                sys.stderr = old_stderr
+
+    @pytest.mark.asyncio
+    async def test_rebuild_cmd_json_error(self):
+        mock_manager = MagicMock()
+        mock_manager.close = AsyncMock()
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ), patch(
+            "code_rag.entry.cli.sync_service.run_rebuild",
+            new=AsyncMock(side_effect=Exception("Rebuild boom")),
+        ):
+            args = argparse.Namespace(
+                db="test.db",
+                onnx=None,
+                verbose=False,
+                json=True,
+                allow_build_execution=False,
+            )
+            old_stdout = sys.stdout
+            sys.stdout = StringIO()
+            try:
+                with pytest.raises(SystemExit) as exc:
+                    await cli.rebuild_cmd(args)
+                assert exc.value.code == 1
+                data = json.loads(sys.stdout.getvalue())
+                assert data["status"] == "error"
+                assert "Rebuild boom" in data["message"]
+            finally:
+                sys.stdout = old_stdout
+            mock_manager.close.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rebuild_cmd_human_error(self):
+        mock_manager = MagicMock()
+        mock_manager.close = AsyncMock()
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ), patch(
+            "code_rag.entry.cli.sync_service.run_rebuild",
+            new=AsyncMock(side_effect=Exception("Rebuild boom")),
+        ):
+            args = argparse.Namespace(
+                db="test.db",
+                onnx=None,
+                verbose=False,
+                json=False,
+                allow_build_execution=False,
+            )
+            old_stderr = sys.stderr
+            sys.stderr = StringIO()
+            try:
+                with pytest.raises(SystemExit) as exc:
+                    await cli.rebuild_cmd(args)
+                assert exc.value.code == 1
+                assert "Rebuild boom" in sys.stderr.getvalue()
+            finally:
+                sys.stderr = old_stderr
 
     @pytest.mark.asyncio
     async def test_api_cmd_logic(self):
@@ -161,7 +252,9 @@ class TestCLIDetailed:
         mock_manager.discovery.extract_api = AsyncMock(return_value="API Report")
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -175,6 +268,64 @@ class TestCLIDetailed:
             mock_manager.discovery.extract_api.assert_called_with(
                 "testlib", language="python"
             )
+
+    @pytest.mark.asyncio
+    async def test_api_cmd_json_error(self):
+        mock_manager = MagicMock()
+        mock_manager.discovery.extract_api = AsyncMock(
+            side_effect=Exception("api down")
+        )
+        mock_manager.close = AsyncMock()
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ), patch(
+            "code_rag.entry.cli.run_api",
+            new=AsyncMock(side_effect=Exception("api down")),
+        ):
+            args = argparse.Namespace(
+                db="test.db",
+                onnx=None,
+                verbose=False,
+                json=True,
+                library="testlib",
+                lang="python",
+            )
+            old_stdout = sys.stdout
+            sys.stdout = StringIO()
+            try:
+                await cli.api_cmd(args)
+                data = json.loads(sys.stdout.getvalue())
+            finally:
+                sys.stdout = old_stdout
+        assert data["status"] == "error"
+        assert "api down" in data["message"]
+
+    @pytest.mark.asyncio
+    async def test_api_cmd_human_error(self):
+        mock_manager = MagicMock()
+        mock_manager.close = AsyncMock()
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ), patch(
+            "code_rag.entry.cli.run_api",
+            new=AsyncMock(side_effect=Exception("api down")),
+        ):
+            args = argparse.Namespace(
+                db="test.db",
+                onnx=None,
+                verbose=False,
+                json=False,
+                library="testlib",
+                lang=None,
+            )
+            old_stderr = sys.stderr
+            sys.stderr = StringIO()
+            try:
+                await cli.api_cmd(args)
+                err = sys.stderr.getvalue()
+            finally:
+                sys.stderr = old_stderr
+        assert "api down" in err
 
     def test_cli_main_exception_handling(self):
         """Test main entry point handles exceptions gracefully."""

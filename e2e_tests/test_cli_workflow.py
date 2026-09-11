@@ -4,12 +4,25 @@ import shutil
 import sys
 from pathlib import Path
 
+from code_rag.intelligence.embedder import get_global_dir
+
 # Use the same temporary directory for E2E consistency
 E2E_TMP = Path(os.getenv("TEMP", "/tmp")) / "agent-coderag-e2e"
+
+_GLOBAL_CONFIG_SNAPSHOT: str | None = None
+_GLOBAL_CONFIG_EXISTED: bool = False
 
 
 def setup_module(module):
     """Prepare a dummy project for E2E testing."""
+    global _GLOBAL_CONFIG_SNAPSHOT, _GLOBAL_CONFIG_EXISTED
+
+    config_path = get_global_dir() / "config.json"
+    _GLOBAL_CONFIG_EXISTED = config_path.exists()
+    _GLOBAL_CONFIG_SNAPSHOT = (
+        config_path.read_text(encoding="utf-8") if _GLOBAL_CONFIG_EXISTED else None
+    )
+
     if E2E_TMP.exists():
         shutil.rmtree(E2E_TMP)
     E2E_TMP.mkdir(parents=True)
@@ -25,12 +38,29 @@ def top_level_fn():
     return True
 ''')
 
+    (E2E_TMP / "nlp.py").write_text('''
+def tokenize(text: str) -> list[str]:
+    """Split raw text into tokens."""
+    return text.split()
+''')
+
     # Create a .gitignore
     (E2E_TMP / ".gitignore").write_text("*.log\n")
+
+    # Force local MiniLM embeddings regardless of developer global config
+    clear_res = run_cli("config", "--clear-embedding")
+    assert clear_res.returncode == 0
 
 
 def teardown_module(module):
     """Cleanup."""
+    config_path = get_global_dir() / "config.json"
+    if _GLOBAL_CONFIG_EXISTED:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(_GLOBAL_CONFIG_SNAPSHOT or "", encoding="utf-8")
+    elif config_path.exists():
+        config_path.unlink()
+
     if E2E_TMP.exists():
         shutil.rmtree(E2E_TMP)
 
@@ -59,10 +89,19 @@ def test_e2e_sync_and_db_state():
     """Verify sync works and database is populated."""
     # Index the current temp dir
     sync_res = run_cli("--verbose", "sync", "--all")
-    assert sync_res.returncode == 0
+    assert sync_res.returncode == 0, sync_res.stderr
 
     # Check if DB file was created
     assert (E2E_TMP / "test.db").exists()
+    import duckdb
+
+    conn = duckdb.connect(str(E2E_TMP / "test.db"), read_only=True)
+    names = {row[0] for row in conn.execute("SELECT name FROM units").fetchall()}
+    embed_n = conn.execute("SELECT count(*) FROM unit_embeddings").fetchone()[0]
+    conn.close()
+    assert "Greeter" in names
+    assert "tokenize" in names
+    assert embed_n == len(names)
 
 
 def test_e2e_search_command_execution():
@@ -79,6 +118,8 @@ def test_e2e_json_output():
 
     data = json.loads(res.stdout)
     assert isinstance(data, list)
+    names = {item.get("name") for item in data}
+    assert "Greeter" in names or any("Greeter" in str(item) for item in data)
 
 
 def test_e2e_api_extraction():

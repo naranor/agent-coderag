@@ -73,6 +73,18 @@ If you don't configure an LLM provider, agent-coderag works in **100% Offline Mo
 - **Search:** Remains fast and accurate.
 - **Distillation:** Instead of AI-generated summaries, the system uses code signatures and entity names as fallback metadata. No data ever leaves your machine.
 
+Remote embeddings are **not** 100% Offline Mode. If you set `embedding_base` + `embedding_model`, `sync` / `search` / `rebuild` need the network. Embedder choice is process-global (`config.json`); after a remote model or dimension change, run `agent-coderag rebuild` (or delete that `--db`) for **each** project index.
+
+```bash
+agent-coderag config \
+  --embedding-url "http://localhost:8081/v1" \
+  --embedding-model "text-embedding-3-small" \
+  --embedding-key "your-api-key" \
+  --embedding-provider "openai"
+
+agent-coderag config --clear-embedding
+```
+
 ### First Sync & Search
 ```bash
 # Index your entire project (respects .gitignore automatically)

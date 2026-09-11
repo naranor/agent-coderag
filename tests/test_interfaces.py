@@ -1,5 +1,7 @@
 import pytest
 from typing import List, Optional
+from unittest.mock import MagicMock
+
 from code_rag.core.interfaces import IParser, IStorage, IIntelligence
 from code_rag.core.models import KnowledgeUnit, Relation, UnitKind, RelationType
 
@@ -7,7 +9,8 @@ from code_rag.core.models import KnowledgeUnit, Relation, UnitKind, RelationType
 class TestIParser:
     """Tests for IParser interface."""
 
-    def test_iparser_subclass(self):
+    @pytest.mark.asyncio
+    async def test_iparser_subclass(self):
         """Test that subclass can implement IParser."""
 
         class MockParser(IParser):
@@ -16,6 +19,7 @@ class TestIParser:
 
         parser = MockParser()
         assert isinstance(parser, IParser)
+        assert await parser.distill_file("x.py") == []
 
 
 class TestIStorage:
@@ -31,8 +35,25 @@ class TestIStorage:
                 self.relations = []
                 self.deps = {}
 
-            async def upsert_unit(self, unit: KnowledgeUnit):
+            async def upsert_unit(self, unit: KnowledgeUnit, vector=None):
                 self.units[unit.id] = unit
+
+            async def has_embedding(self, unit_id: str) -> bool:
+                return unit_id in self.units
+
+            async def list_units(self):
+                return list(self.units.values())
+
+            async def mark_embedding_model_synced(self) -> None:
+                return None
+
+            @property
+            def embedding_model_dirty(self) -> bool:
+                return False
+
+            @property
+            def embedder(self):
+                return MagicMock()
 
             async def get_unit(self, unit_id: str):
                 return self.units.get(unit_id)
@@ -79,6 +100,13 @@ class TestIStorage:
         await storage.set_dependency_path("lib", "path")
         assert await storage.get_dependency_path("lib") == "path"
 
+        assert await storage.has_embedding("u1") is True
+        listed = await storage.list_units()
+        assert listed == [unit]
+        await storage.mark_embedding_model_synced()
+        assert storage.embedding_model_dirty is False
+        assert storage.embedder is not None
+
         await storage.delete_stale_units("p1", ["u1"])
         await storage.close()
 
@@ -86,7 +114,8 @@ class TestIStorage:
 class TestIIntelligence:
     """Tests for IIntelligence interface."""
 
-    def test_iintelligence_subclass(self):
+    @pytest.mark.asyncio
+    async def test_iintelligence_subclass(self):
         """Test that subclass can implement IIntelligence."""
 
         class MockIntelligence(IIntelligence):
@@ -95,3 +124,4 @@ class TestIIntelligence:
 
         intel = MockIntelligence()
         assert isinstance(intel, IIntelligence)
+        assert await intel.summarize("code", "n") == "summary"

@@ -35,25 +35,19 @@ class TestCLIHelpers:
         assert cli.should_index(Path(".git/config"), spec) is False
         assert cli.should_index(Path("node_modules/pkg/index.js"), spec) is False
 
-    @patch("code_rag.entry.cli.DistillerConfig")
-    @patch("code_rag.entry.cli.Embedder")
-    @patch("code_rag.entry.cli.DuckDBStorage")
-    @patch("code_rag.entry.cli.MultiParser")
-    @patch("code_rag.entry.cli.Distiller")
-    def test_get_manager_init(
-        self, mock_distiller, mock_parser, mock_storage, mock_embedder, mock_config
-    ):
-        """Test get_manager initialization."""
-        mock_config.load.return_value = MagicMock(
-            api_base="http://localhost:8081",
-            api_key="test-key",
-            model="gpt-4",
-            provider="openai",
+    @pytest.mark.asyncio
+    async def test_get_manager_init(self):
+        """Test get_manager delegates to create_manager."""
+        sentinel = MagicMock()
+        with patch(
+            "code_rag.entry.cli.create_manager", new=AsyncMock(return_value=sentinel)
+        ) as mock_cm, patch.object(cli, "Embedder") as mock_embedder:
+            out = await cli.get_manager("test.db")
+        assert out is sentinel
+        mock_cm.assert_awaited_once_with(
+            "test.db", None, allow_build_execution=False, wipe=False
         )
-
-        manager = cli.get_manager("test.db")
-
-        assert manager is not None
+        mock_embedder.assert_not_called()
 
 
 class TestCLISync:
@@ -63,11 +57,13 @@ class TestCLISync:
     async def test_sync_cmd_with_json(self, tmp_path):
         """Test sync command with JSON output."""
         mock_manager = MagicMock()
-        mock_manager.sync_project = AsyncMock()
+        mock_manager.sync_project = AsyncMock(return_value=[])
         mock_manager.sync_dependencies = AsyncMock()
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
             args = argparse.Namespace(
                 db=str(tmp_path / "test.db"),
                 onnx=None,
@@ -90,12 +86,12 @@ class TestCLISync:
     async def test_sync_cmd_propagates_build_execution_flag(self, tmp_path):
         """Test the --allow-build-execution opt-in reaches the manager."""
         mock_manager = MagicMock()
-        mock_manager.sync_project = AsyncMock()
+        mock_manager.sync_project = AsyncMock(return_value=[])
         mock_manager.sync_dependencies = AsyncMock()
         mock_manager.close = AsyncMock()
 
         with patch(
-            "code_rag.entry.cli.get_manager", return_value=mock_manager
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
         ) as mock_get_manager:
             args = argparse.Namespace(
                 db=str(tmp_path / "test.db"),
@@ -117,13 +113,16 @@ class TestCLISync:
         """Test sync command for a single file."""
         mock_manager = MagicMock()
         mock_manager.sync_file = AsyncMock()
+        mock_manager.sync_project = AsyncMock(return_value=[])
         mock_manager.sync_dependencies = AsyncMock()
         mock_manager.close = AsyncMock()
 
         test_file = tmp_path / "test.py"
         test_file.write_text("def test(): pass")
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
             args = argparse.Namespace(
                 db=str(tmp_path / "test.db"),
                 onnx=None,
@@ -136,7 +135,10 @@ class TestCLISync:
 
             await cli.sync_cmd(args)
 
-            mock_manager.sync_file.assert_called_once()
+            mock_manager.sync_project.assert_awaited_once()
+            assert mock_manager.sync_project.await_args.args[0] == [
+                str(test_file.resolve())
+            ]
 
 
 class TestCLISearch:
@@ -162,7 +164,9 @@ class TestCLISearch:
         )
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -187,7 +191,9 @@ class TestCLISearch:
         mock_manager.search = AsyncMock(return_value=[])
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -225,7 +231,9 @@ class TestCLISearch:
         )
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
             args = argparse.Namespace(
                 db="test.db", onnx=None, verbose=False, json=True, query="test", limit=5
             )
@@ -249,7 +257,9 @@ class TestCLIApi:
         mock_manager.discovery.extract_api = AsyncMock(return_value="Public API...")
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
             args = argparse.Namespace(
                 library="pydantic",
                 json=False,
@@ -274,7 +284,9 @@ class TestCLIApi:
         mock_manager.discovery.extract_api = AsyncMock(return_value="Public API...")
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
             args = argparse.Namespace(
                 library="requests",
                 json=True,

@@ -2,7 +2,8 @@ import logging
 import json
 from typing import Optional
 import litellm
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_validator
+from ..core.exceptions import IntelligenceError
 from ..core.interfaces import IIntelligence
 from ..core.constants import LLM_REQUEST_TIMEOUT
 from .embedder import get_global_dir
@@ -11,11 +12,33 @@ logger = logging.getLogger(__name__)
 
 
 class DistillerConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     model: str = "auto"
     api_base: str = "http://localhost:8081/api/v1"
     api_key: Optional[str] = None
     provider: str = "openai"
     temperature: float = 0.0
+    embedding_base: Optional[str] = None
+    embedding_key: Optional[str] = None
+    embedding_model: Optional[str] = None
+    embedding_provider: Optional[str] = None
+
+    @field_validator(
+        "embedding_base",
+        "embedding_key",
+        "embedding_model",
+        "embedding_provider",
+        mode="before",
+    )
+    @classmethod
+    def _blank_embedding_to_none(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
 
     @classmethod
     def load(cls) -> "DistillerConfig":
@@ -32,6 +55,12 @@ class DistillerConfig(BaseModel):
 
     def save(self):
         """Saves current config to the global agent-coderag directory."""
+        base_set = self.embedding_base is not None
+        model_set = self.embedding_model is not None
+        if base_set != model_set:
+            raise IntelligenceError(
+                "embedding_base and embedding_model must both be set or both unset"
+            )
         config_path = get_global_dir() / "config.json"
         config_path.parent.mkdir(parents=True, exist_ok=True)
         try:

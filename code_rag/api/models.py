@@ -1,9 +1,15 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SyncFileError(BaseModel):
+    file: str
+    message: str
 
 
 class SyncResult(BaseModel):
     status: str
     indexed_files: int
+    errors: list[SyncFileError] = Field(default_factory=list)
 
 
 class ApiReport(BaseModel):

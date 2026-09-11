@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 from code_rag.core.manager import CodeRAGManager
+from tests.embedder_stubs import StubEmbedder
 
 
 @pytest.fixture
@@ -12,6 +13,11 @@ def mock_storage():
     storage.delete_stale_units = AsyncMock()
     storage.set_dependency_path = AsyncMock()
     storage.close = AsyncMock()
+    storage.has_embedding = AsyncMock(return_value=False)
+    storage.list_units = AsyncMock(return_value=[])
+    storage.mark_embedding_model_synced = AsyncMock()
+    storage.embedding_model_dirty = False
+    storage.embedder = StubEmbedder()
     return storage
 
 
@@ -76,7 +82,14 @@ class TestManagerExtra:
     @pytest.mark.asyncio
     async def test_sync_project_worker_exception(self, manager, mock_parser):
         """Test worker handles individual file exceptions without crashing pool."""
-        mock_parser.distill_file.side_effect = [Exception("F1 error"), []]
-        await manager.sync_project(["f1.py", "f2.py"])
+
+        async def distill(path):
+            if path == "f1.py":
+                raise Exception("F1 error")
+            return []
+
+        mock_parser.distill_file.side_effect = distill
+        failures = await manager.sync_project(["f1.py", "f2.py"])
         # Should complete both
         assert mock_parser.distill_file.call_count == 2
+        assert failures == [("f1.py", "F1 error")]

@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from code_rag.api.models import ApiReport, SetupResult, SyncResult
+from code_rag.core.manager import CodeRAGManager
 from code_rag.core.models import KnowledgeUnit
 from code_rag.intelligence.distiller import DistillerConfig
 from code_rag.services.config import load_or_update_config
@@ -27,7 +28,7 @@ class CodeRAG:
         self._onnx = onnx
         self._root = Path(root) if root is not None else Path.cwd()
         self._allow_build_execution = allow_build_execution
-        self._manager = None
+        self._manager: Optional[CodeRAGManager] = None
 
     async def __aenter__(self) -> "CodeRAG":
         return self
@@ -40,22 +41,42 @@ class CodeRAG:
             await self._manager.close()
             self._manager = None
 
-    def _ensure_manager(self):
+    async def _ensure_manager(self, wipe: bool = False):
+        if wipe and self._manager is not None:
+            await self.close()
         if self._manager is None:
-            self._manager = create_manager(
-                self._db, self._onnx, allow_build_execution=self._allow_build_execution
+            self._manager = await create_manager(
+                self._db,
+                self._onnx,
+                allow_build_execution=self._allow_build_execution,
+                wipe=wipe,
             )
         return self._manager
 
-    async def config(
+    async def config(  # pylint: disable=too-many-arguments
         self,
         *,
         url: Optional[str] = None,
         key: Optional[str] = None,
         model: Optional[str] = None,
         provider: Optional[str] = None,
+        embedding_url: Optional[str] = None,
+        embedding_key: Optional[str] = None,
+        embedding_model: Optional[str] = None,
+        embedding_provider: Optional[str] = None,
+        clear_embedding: bool = False,
     ) -> DistillerConfig:
-        return load_or_update_config(url=url, key=key, model=model, provider=provider)
+        return load_or_update_config(
+            url=url,
+            key=key,
+            model=model,
+            provider=provider,
+            embedding_url=embedding_url,
+            embedding_key=embedding_key,
+            embedding_model=embedding_model,
+            embedding_provider=embedding_provider,
+            clear_embedding=clear_embedding,
+        )
 
     async def setup(self, *, force: bool = False) -> SetupResult:
         return await run_setup(force=force)
@@ -70,7 +91,7 @@ class CodeRAG:
         if path is None and not index_all:
             return SyncResult(status="success", indexed_files=0)
         return await run_sync(
-            self._ensure_manager(),
+            await self._ensure_manager(),
             root=self._root,
             path=path,
             index_all=index_all,
@@ -78,10 +99,12 @@ class CodeRAG:
         )
 
     async def search(self, query: str, *, limit: int = 5) -> list[KnowledgeUnit]:
-        return await run_search(self._ensure_manager(), query, limit=limit)
+        return await run_search(await self._ensure_manager(), query, limit=limit)
 
     async def api(self, library: str, *, lang: Optional[str] = None) -> ApiReport:
-        return await run_api(self._ensure_manager(), library, lang=lang)
+        return await run_api(await self._ensure_manager(), library, lang=lang)
 
     async def rebuild(self) -> SyncResult:
-        return await run_rebuild(self._ensure_manager(), root=self._root)
+        await self.close()
+        manager = await self._ensure_manager(wipe=True)
+        return await run_rebuild(manager, root=self._root)
