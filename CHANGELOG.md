@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [1.3.4] - 2026-09-11
+
 ### Added
 - OpenAI-compatible remote embeddings (LiteLLM `aembedding`) alongside local ONNX MiniLM.
 - CLI flags `--embedding-url`, `--embedding-key`, `--embedding-model`, `--embedding-provider`, and `--clear-embedding`.
