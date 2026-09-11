@@ -188,7 +188,7 @@ class DuckDBStorage(IStorage):
         self._embedding_model_dirty = False
         self._embeddings_bound = False
         self._pending_wipe = False
-        self._bind_lock = asyncio.Lock()
+        self._conn_lock = asyncio.Lock()
 
     @property
     def embedder(self) -> IEmbedder:
@@ -210,10 +210,15 @@ class DuckDBStorage(IStorage):
             return
         self._embedding_model_dirty = meta_model != self.embedder.model_id
 
+    async def _with_conn(self, fn):
+        """Run DuckDB work serially; a single connection is not thread-safe."""
+        async with self._conn_lock:
+            return await asyncio.to_thread(fn)
+
     async def ensure_embeddings_bound(self) -> None:
         if self._embeddings_bound:
             return
-        async with self._bind_lock:
+        async with self._conn_lock:
             if self._embeddings_bound:
                 return
             await self._bind_embeddings()
@@ -272,15 +277,16 @@ class DuckDBStorage(IStorage):
 
     async def set_dependency_path(self, lib_name: str, path: str) -> None:
         """Caches the absolute path to a library's JAR/binary."""
-        await asyncio.to_thread(
-            self.conn.execute,
-            "INSERT OR REPLACE INTO dependencies (name, path) VALUES (?, ?)",
-            [lib_name, path],
+        await self._with_conn(
+            lambda: self.conn.execute(
+                "INSERT OR REPLACE INTO dependencies (name, path) VALUES (?, ?)",
+                [lib_name, path],
+            )
         )
 
     async def get_dependency_path(self, lib_name: str) -> Optional[str]:
         """Retrieves the cached path for a library."""
-        res = await asyncio.to_thread(
+        res = await self._with_conn(
             lambda: self.conn.execute(
                 "SELECT path FROM dependencies WHERE name = ?", [lib_name]
             ).fetchone()
@@ -294,34 +300,39 @@ class DuckDBStorage(IStorage):
             await self.ensure_embeddings_bound()
         placeholders = ", ".join(["?"] * len(UNIT_COLUMNS))
         cols = ", ".join(UNIT_COLUMNS)
-        await asyncio.to_thread(
-            self.conn.execute,
-            f"INSERT OR REPLACE INTO units ({cols}) VALUES ({placeholders})",
-            [
-                unit.id,
-                unit.kind.value,
-                unit.name,
-                unit.path,
-                unit.signature,
-                unit.docstring,
-                unit.summary,
-                unit.code_hash,
-                unit.tags,
-                json.dumps(unit.metadata),
-            ],
-        )
-        if vector is not None:
-            await asyncio.to_thread(
-                self.conn.execute,
-                "INSERT OR REPLACE INTO unit_embeddings (id, vec) VALUES (?, ?)",
-                [unit.id, vector],
+        payload = [
+            unit.id,
+            unit.kind.value,
+            unit.name,
+            unit.path,
+            unit.signature,
+            unit.docstring,
+            unit.summary,
+            unit.code_hash,
+            unit.tags,
+            json.dumps(unit.metadata),
+        ]
+        vec = vector
+        unit_id = unit.id
+
+        def _write():
+            self.conn.execute(
+                f"INSERT OR REPLACE INTO units ({cols}) VALUES ({placeholders})",
+                payload,
             )
+            if vec is not None:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO unit_embeddings (id, vec) VALUES (?, ?)",
+                    [unit_id, vec],
+                )
+
+        await self._with_conn(_write)
         for rel in unit.relations:
             await self.upsert_relation(rel)
 
     async def has_embedding(self, unit_id: str) -> bool:
         await self.ensure_embeddings_bound()
-        row = await asyncio.to_thread(
+        row = await self._with_conn(
             lambda: self.conn.execute(
                 "SELECT 1 FROM unit_embeddings WHERE id = ?", [unit_id]
             ).fetchone()
@@ -330,19 +341,20 @@ class DuckDBStorage(IStorage):
 
     async def list_units(self) -> List[KnowledgeUnit]:
         cols = ", ".join(UNIT_COLUMNS)
-        rows = await asyncio.to_thread(
+        rows = await self._with_conn(
             lambda: self.conn.execute(f"SELECT {cols} FROM units").fetchall()  # nosec
         )
         return [self._map_row_to_unit(row) for row in rows]
 
     async def mark_embedding_model_synced(self) -> None:
-        _meta_set(self.conn, META_MODEL_KEY, self.embedder.model_id)
+        model_id = self.embedder.model_id
+        await self._with_conn(lambda: _meta_set(self.conn, META_MODEL_KEY, model_id))
         self._embedding_model_dirty = False
 
     async def get_unit(self, unit_id: str) -> Optional[KnowledgeUnit]:
         """Retrieves a unit by its unique ID."""
         cols = ", ".join(UNIT_COLUMNS)
-        res = await asyncio.to_thread(
+        res = await self._with_conn(
             lambda: self.conn.execute(
                 f"SELECT {cols} FROM units WHERE id = ?",  # nosec
                 [unit_id],
@@ -366,24 +378,22 @@ class DuckDBStorage(IStorage):
             )
         dim = self.embedder.dimension
         query_vec = (await self.embedder.aembed([query]))[0]
-        res = await asyncio.to_thread(
-            lambda: self.conn.execute(
-                f"""
+        sql = f"""
                 SELECT {cols}, array_distance(e.vec, ?::{float_vec_sql_type(dim)}) as dist
                 FROM units u
                 JOIN unit_embeddings e ON u.id = e.id
                 ORDER BY dist ASC
                 LIMIT ?
-                """,  # nosec
-                [query_vec, limit],
-            ).fetchall()
+                """  # nosec
+        res = await self._with_conn(
+            lambda: self.conn.execute(sql, [query_vec, limit]).fetchall()
         )
         units = [self._map_row_to_unit(row) for row in res]
         if not units:
             return []
 
         unit_ids = [u.id for u in units]
-        rels_res = await asyncio.to_thread(
+        rels_res = await self._with_conn(
             lambda: self.conn.execute(
                 "SELECT from_id, to_id, type FROM relations WHERE from_id IN (SELECT unnest(?))",
                 [unit_ids],
@@ -401,13 +411,14 @@ class DuckDBStorage(IStorage):
 
     async def upsert_relation(self, relation: Relation):
         """Inserts or updates a relation between units."""
-        await asyncio.to_thread(
-            self.conn.execute,
-            """
+        await self._with_conn(
+            lambda: self.conn.execute(
+                """
             INSERT OR REPLACE INTO relations (from_id, to_id, type)
             VALUES (?, ?, ?)
         """,
-            [relation.from_id, relation.to_id, relation.type.value],
+                [relation.from_id, relation.to_id, relation.type.value],
+            )
         )
 
     async def get_relations(
@@ -415,14 +426,14 @@ class DuckDBStorage(IStorage):
     ) -> List[Relation]:
         """Retrieves relations for a unit."""
         if direction == "out":
-            res = await asyncio.to_thread(
+            res = await self._with_conn(
                 lambda: self.conn.execute(
                     "SELECT from_id, to_id, type FROM relations WHERE from_id = ?",
                     [unit_id],
                 ).fetchall()
             )
         else:
-            res = await asyncio.to_thread(
+            res = await self._with_conn(
                 lambda: self.conn.execute(
                     "SELECT from_id, to_id, type FROM relations WHERE to_id = ?",
                     [unit_id],
@@ -438,31 +449,29 @@ class DuckDBStorage(IStorage):
     ) -> None:
         """Removes units that are no longer present in the given file."""
         await self.ensure_embeddings_bound()
-        await asyncio.to_thread(
-            lambda: self.conn.execute(
+
+        def _delete():
+            self.conn.execute(
                 "DELETE FROM unit_embeddings WHERE id IN (SELECT id FROM units WHERE path = ? AND id NOT IN (SELECT unnest(?)))",
                 [file_path, current_unit_ids],
             )
-        )
-        await asyncio.to_thread(
-            lambda: self.conn.execute(
+            self.conn.execute(
                 "DELETE FROM relations WHERE from_id IN (SELECT id FROM units WHERE path = ? AND id NOT IN (SELECT unnest(?)))",
                 [file_path, current_unit_ids],
             )
-        )
-        await asyncio.to_thread(
-            lambda: self.conn.execute(
+            self.conn.execute(
                 "DELETE FROM units WHERE path = ? AND id NOT IN (SELECT unnest(?))",
                 [file_path, current_unit_ids],
             )
-        )
+
+        await self._with_conn(_delete)
         logger.debug("Cleaned up stale units for %s", file_path)
 
     async def close(self) -> None:
         if self.embedder is not None:
             await self.embedder.close()
         if self.conn:
-            await asyncio.to_thread(self.conn.close)
+            await self._with_conn(self.conn.close)
             logger.info("Storage connection closed.")
 
     def _map_row_to_unit(self, row) -> KnowledgeUnit:

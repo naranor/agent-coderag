@@ -11,6 +11,7 @@
 - `sync --all` re-embeds existing units even when the walk finds no indexable files.
 
 ### Fixed
+- Concurrent `sync --all` workers no longer race the DuckDB connection (`KeyError: 'kind'`).
 - File-level worker failures no longer report overall `success` after a partial index.
 
 ## [1.3.3] - 2026-09-09

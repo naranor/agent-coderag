@@ -422,3 +422,25 @@ async def test_close_skips_missing_embedder_and_conn(tmp_path):
     storage.conn = None
     await storage.close()
     conn.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_upsert_and_get_keep_kind(tmp_path):
+    import asyncio as aio
+
+    stub = StubEmbedder(dim=8)
+    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+
+    async def one(i: int) -> None:
+        uid = f"u{i}"
+        await storage.upsert_unit(_unit(uid=uid, summary=f"s{i}"), vector=[0.0] * 8)
+        got = await storage.get_unit(uid)
+        assert got is not None
+        assert got.kind == UnitKind.FUNCTION
+        assert got.name == uid
+        assert await storage.has_embedding(uid) is True
+
+    await aio.gather(*[one(i) for i in range(24)])
+    listed = await storage.list_units()
+    assert len(listed) == 24
+    await storage.close()
