@@ -1,7 +1,9 @@
 import json
+import logging
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from code_rag.core.exceptions import IntelligenceError
 from code_rag.intelligence.distiller import DistillerConfig
@@ -148,3 +150,43 @@ def test_load_or_update_config_show_does_not_save():
         with patch.object(cfg, "save") as mock_save:
             assert load_or_update_config() is cfg
             mock_save.assert_not_called()
+
+
+def test_non_string_embedding_field_rejected():
+    with pytest.raises(ValidationError):
+        DistillerConfig(embedding_base=123)  # type: ignore[arg-type]
+
+
+def test_load_invalid_json_falls_back_to_defaults(tmp_path):
+    global_dir = tmp_path / "agent-coderag"
+    global_dir.mkdir()
+    (global_dir / "config.json").write_text("{not-json", encoding="utf-8")
+    with patch(
+        "code_rag.intelligence.distiller.get_global_dir", return_value=global_dir
+    ):
+        cfg = DistillerConfig.load()
+    assert cfg.model == "auto"
+    assert cfg.embedding_base is None
+
+
+def test_save_xor_raises_without_writing(tmp_path):
+    global_dir = tmp_path / "agent-coderag"
+    cfg = DistillerConfig()
+    cfg.embedding_base = "http://e"
+    with patch(
+        "code_rag.intelligence.distiller.get_global_dir", return_value=global_dir
+    ):
+        with pytest.raises(IntelligenceError, match="both be set or both unset"):
+            cfg.save()
+    assert not (global_dir / "config.json").exists()
+
+
+def test_save_io_error_is_logged(tmp_path, caplog):
+    global_dir = tmp_path / "agent-coderag"
+    cfg = DistillerConfig()
+    with patch(
+        "code_rag.intelligence.distiller.get_global_dir", return_value=global_dir
+    ), patch("builtins.open", side_effect=OSError("disk full")):
+        with caplog.at_level(logging.ERROR, logger="code_rag.intelligence.distiller"):
+            cfg.save()
+    assert any("Failed to save config" in rec.message for rec in caplog.records)

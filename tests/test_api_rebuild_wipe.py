@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from code_rag.api.client import CodeRAG
-from code_rag.api.models import SyncResult
+from code_rag.api.models import ApiReport, SyncResult
 from code_rag.core.manager import CodeRAGManager
 from code_rag.core.models import KnowledgeUnit, UnitKind
 from code_rag.storage.duckdb_impl import DuckDBStorage
@@ -118,3 +118,54 @@ async def test_live_rebuild_wipes_embeddings_table(tmp_path):
         narrow.close()
         assert "8" in str(typ)
         await rag.close()
+
+
+@pytest.mark.asyncio
+async def test_ensure_manager_wipe_closes_cached_manager():
+    first = MagicMock()
+    first.close = AsyncMock()
+    second = MagicMock()
+    with patch(
+        "code_rag.api.client.create_manager", new=AsyncMock(return_value=second)
+    ) as create:
+        rag = CodeRAG(db="proj.db")
+        rag._manager = first
+        out = await rag._ensure_manager(wipe=True)
+    first.close.assert_awaited()
+    assert out is second
+    assert rag._manager is second
+    assert create.await_args.kwargs.get("wipe") is True
+
+
+@pytest.mark.asyncio
+async def test_api_forwards_lang():
+    manager = MagicMock()
+    manager.close = AsyncMock()
+    report = ApiReport(library="lib", language="python", report="ok")
+    with patch(
+        "code_rag.api.client.create_manager", new=AsyncMock(return_value=manager)
+    ), patch(
+        "code_rag.api.client.run_api", new=AsyncMock(return_value=report)
+    ) as mock_api:
+        rag = CodeRAG()
+        out = await rag.api("lib", lang=None)
+    assert out is report
+    mock_api.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_close_without_manager_is_noop():
+    rag = CodeRAG()
+    await rag.close()
+    assert rag._manager is None
+
+
+@pytest.mark.asyncio
+async def test_ensure_manager_reuses_existing():
+    first = MagicMock()
+    with patch("code_rag.api.client.create_manager") as create:
+        rag = CodeRAG(db="proj.db")
+        rag._manager = first
+        out = await rag._ensure_manager()
+    create.assert_not_called()
+    assert out is first

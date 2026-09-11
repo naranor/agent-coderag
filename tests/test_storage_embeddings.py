@@ -1,10 +1,19 @@
+from unittest.mock import patch
+
 import duckdb
 import pytest
 
 from code_rag.core.constants import EMBEDDING_PROBE_TEXT, LOCAL_EMBEDDING_MODEL_ID
-from code_rag.core.exceptions import StorageError
+from code_rag.core.exceptions import IntelligenceError, StorageError
 from code_rag.core.models import KnowledgeUnit, UnitKind
-from code_rag.storage.duckdb_impl import DuckDBStorage, float_vec_sql_type
+from code_rag.storage.duckdb_impl import (
+    DuckDBStorage,
+    _meta_get,
+    _parse_positive_dim,
+    _schema_vec_width,
+    bind_embedder_dimension,
+    float_vec_sql_type,
+)
 from tests.embedder_stubs import StubEmbedder, UnboundStubEmbedder
 
 
@@ -270,3 +279,146 @@ async def test_non_vector_ops_do_not_bind(tmp_path):
     assert got is not None
     assert stub.aembed_calls == []
     await storage.close()
+
+
+def test_parse_positive_dim_rejects_zero():
+    with pytest.raises(StorageError, match="Corrupt embedding metadata"):
+        _parse_positive_dim("0")
+
+
+def test_schema_vec_width_without_float_array():
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE TABLE unit_embeddings (id VARCHAR PRIMARY KEY, vec VARCHAR)")
+    assert _schema_vec_width(conn) is None
+    conn.close()
+
+
+def test_meta_get_without_index_meta_table():
+    conn = duckdb.connect(":memory:")
+    assert _meta_get(conn, "embedding_dim") is None
+    conn.close()
+
+
+@pytest.mark.asyncio
+async def test_probe_empty_rows_raises_count_mismatch():
+    class EmptyProbe(UnboundStubEmbedder):
+        async def aembed(self, texts):
+            self.aembed_calls.append(list(texts))
+            return []
+
+    stub = EmptyProbe(probe_dim=8, model_id="remote")
+    conn = duckdb.connect(":memory:")
+    with pytest.raises(IntelligenceError, match="count mismatch"):
+        await bind_embedder_dimension(conn, stub, wiped=True)
+    conn.close()
+
+
+@pytest.mark.asyncio
+async def test_corrupt_schema_vs_meta_raises(tmp_path):
+    path = str(tmp_path / "t.db")
+    stub = StubEmbedder(dim=8, model_id="m8")
+    storage = await DuckDBStorage.open(path, stub)
+    await storage.ensure_embeddings_bound()
+    storage.conn.execute(
+        "INSERT OR REPLACE INTO index_meta VALUES ('embedding_dim', '384')"
+    )
+    await storage.close()
+    storage = await DuckDBStorage.open(path, StubEmbedder(dim=8, model_id="m8"))
+    with pytest.raises(StorageError, match="Corrupt embedding metadata"):
+        await storage.ensure_embeddings_bound()
+    await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_legacy_incomplete_meta_probes_remote(tmp_path):
+    path = str(tmp_path / "legacy_remote.db")
+    conn = duckdb.connect(path)
+    conn.execute("INSTALL vss;")
+    conn.execute("LOAD vss;")
+    conn.execute(
+        "CREATE TABLE units (id VARCHAR PRIMARY KEY, kind VARCHAR, name VARCHAR, path VARCHAR, signature VARCHAR, docstring VARCHAR, summary VARCHAR, code_hash VARCHAR, tags VARCHAR[], metadata JSON)"
+    )
+    conn.execute(
+        "CREATE TABLE unit_embeddings (id VARCHAR PRIMARY KEY, vec FLOAT[384])"
+    )
+    conn.close()
+    stub = UnboundStubEmbedder(probe_dim=384, model_id="remote-384")
+    storage = await DuckDBStorage.open(path, stub, wipe=False)
+    await storage.ensure_embeddings_bound()
+    assert stub.aembed_calls[0] == [EMBEDDING_PROBE_TEXT]
+    assert stub.dimension == 384
+    await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_ensure_bound_double_checked_lock(tmp_path):
+    import asyncio as aio
+
+    stub = UnboundStubEmbedder(probe_dim=8, model_id="remote-8")
+    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    original = storage._bind_embeddings
+
+    async def slow_bind():
+        await aio.sleep(0.05)
+        await original()
+
+    storage._bind_embeddings = slow_bind
+    await aio.gather(
+        storage.ensure_embeddings_bound(),
+        storage.ensure_embeddings_bound(),
+    )
+    assert storage._embeddings_bound is True
+    await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_open_failure_closes_connection(tmp_path):
+    with patch(
+        "code_rag.storage.duckdb_impl._ensure_base_tables",
+        side_effect=RuntimeError("boom"),
+    ):
+        with pytest.raises(RuntimeError, match="boom"):
+            await DuckDBStorage.open(str(tmp_path / "t.db"), StubEmbedder())
+
+
+@pytest.mark.asyncio
+async def test_open_failure_ignores_close_error():
+    class BoomConn:
+        def close(self):
+            raise RuntimeError("close fail")
+
+    with patch(
+        "code_rag.storage.duckdb_impl.duckdb.connect", return_value=BoomConn()
+    ), patch(
+        "code_rag.storage.duckdb_impl._ensure_base_tables",
+        side_effect=RuntimeError("boom"),
+    ):
+        with pytest.raises(RuntimeError, match="boom"):
+            await DuckDBStorage.open("ignored.db", StubEmbedder())
+
+
+@pytest.mark.asyncio
+async def test_list_units_and_mark_synced(tmp_path):
+    stub = StubEmbedder(dim=8, model_id="m8")
+    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    await storage.upsert_unit(_unit(), vector=[0.0] * 8)
+    listed = await storage.list_units()
+    assert listed[0].id == "u1"
+    storage._embedding_model_dirty = True
+    await storage.mark_embedding_model_synced()
+    assert storage.embedding_model_dirty is False
+    model = storage.conn.execute(
+        "SELECT value FROM index_meta WHERE key='embedding_model'"
+    ).fetchone()[0]
+    assert model == "m8"
+    await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_close_skips_missing_embedder_and_conn(tmp_path):
+    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), StubEmbedder())
+    conn = storage.conn
+    storage._embedder = None
+    storage.conn = None
+    await storage.close()
+    conn.close()

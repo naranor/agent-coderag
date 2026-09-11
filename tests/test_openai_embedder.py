@@ -138,3 +138,45 @@ async def test_close_is_noop_safe():
     embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
     await embedder.close()
     await embedder.close()
+
+
+def test_unbound_dimension_raises():
+    embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
+    with pytest.raises(IntelligenceError, match="not bound"):
+        _ = embedder.dimension
+
+
+def test_bind_rejects_invalid_and_mismatch():
+    embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
+    with pytest.raises(IntelligenceError, match="positive int"):
+        embedder.bind_dimension(0)
+    embedder.bind_dimension(8)
+    embedder.bind_dimension(8)
+    with pytest.raises(IntelligenceError, match="already bound"):
+        embedder.bind_dimension(4)
+
+
+@pytest.mark.asyncio
+async def test_aembed_rejects_unparseable_response():
+    embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
+    embedder.bind_dimension(2)
+    resp = MagicMock()
+    resp.data = [object()]
+    with patch(
+        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        new=AsyncMock(return_value=resp),
+    ):
+        with pytest.raises(IntelligenceError, match="Embedding request failed"):
+            await embedder.aembed(["x"])
+
+
+@pytest.mark.asyncio
+async def test_aembed_count_mismatch():
+    embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
+    embedder.bind_dimension(2)
+    with patch(
+        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        new=AsyncMock(return_value=_resp([[1.0, 0.0], [0.0, 1.0]])),
+    ):
+        with pytest.raises(IntelligenceError, match="count mismatch"):
+            await embedder.aembed(["only-one"])

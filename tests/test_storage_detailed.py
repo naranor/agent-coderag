@@ -76,3 +76,31 @@ class TestStorageDetailed:
         # Connection should be unusable
         with pytest.raises(duckdb.ConnectionException):
             storage.conn.execute("SELECT 1")
+
+    @pytest.mark.asyncio
+    async def test_get_relations_inbound(self, storage):
+        rel = Relation(from_id="src", to_id="dst", type=RelationType.CALLS)
+        await storage.upsert_relation(rel)
+        inbound = await storage.get_relations("dst", direction="in")
+        assert len(inbound) == 1
+        assert inbound[0].from_id == "src"
+
+    @pytest.mark.asyncio
+    async def test_map_row_empty_tags_and_metadata(self, storage):
+        unit = KnowledgeUnit(
+            id="empty",
+            name="empty",
+            kind=UnitKind.FUNCTION,
+            path="p.py",
+            code_hash="h",
+            tags=[],
+            metadata={},
+        )
+        await storage.upsert_unit(unit)
+        storage.conn.execute(
+            "UPDATE units SET tags = NULL, metadata = NULL WHERE id = 'empty'"
+        )
+        got = await storage.get_unit("empty")
+        assert got is not None
+        assert got.tags == []
+        assert got.metadata == {}

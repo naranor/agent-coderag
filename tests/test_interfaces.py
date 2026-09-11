@@ -9,7 +9,8 @@ from code_rag.core.models import KnowledgeUnit, Relation, UnitKind, RelationType
 class TestIParser:
     """Tests for IParser interface."""
 
-    def test_iparser_subclass(self):
+    @pytest.mark.asyncio
+    async def test_iparser_subclass(self):
         """Test that subclass can implement IParser."""
 
         class MockParser(IParser):
@@ -18,6 +19,7 @@ class TestIParser:
 
         parser = MockParser()
         assert isinstance(parser, IParser)
+        assert await parser.distill_file("x.py") == []
 
 
 class TestIStorage:
@@ -98,6 +100,13 @@ class TestIStorage:
         await storage.set_dependency_path("lib", "path")
         assert await storage.get_dependency_path("lib") == "path"
 
+        assert await storage.has_embedding("u1") is True
+        listed = await storage.list_units()
+        assert listed == [unit]
+        await storage.mark_embedding_model_synced()
+        assert storage.embedding_model_dirty is False
+        assert storage.embedder is not None
+
         await storage.delete_stale_units("p1", ["u1"])
         await storage.close()
 
@@ -105,7 +114,8 @@ class TestIStorage:
 class TestIIntelligence:
     """Tests for IIntelligence interface."""
 
-    def test_iintelligence_subclass(self):
+    @pytest.mark.asyncio
+    async def test_iintelligence_subclass(self):
         """Test that subclass can implement IIntelligence."""
 
         class MockIntelligence(IIntelligence):
@@ -114,3 +124,4 @@ class TestIIntelligence:
 
         intel = MockIntelligence()
         assert isinstance(intel, IIntelligence)
+        assert await intel.summarize("code", "n") == "summary"

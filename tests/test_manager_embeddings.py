@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from code_rag.core.constants import EMBEDDING_BATCH_SIZE
-from code_rag.core.exceptions import StorageError
+from code_rag.core.exceptions import IntelligenceError, StorageError
 from code_rag.core.manager import CodeRAGManager, unit_embedding_text
 from code_rag.core.models import KnowledgeUnit, UnitKind
 from tests.embedder_stubs import StubEmbedder
@@ -163,46 +163,22 @@ async def test_sync_project_dirty_reembeds_all_then_file_sync_skips():
     assert file_upserts
     last_a = file_upserts[-1]
     vector = last_a.kwargs.get("vector")
-    if vector is None and len(last_a.args) > 1:
-        vector = last_a.args[1]
     assert vector is None
 
 
 @pytest.mark.asyncio
 async def test_concurrent_sync_file_does_not_overlap_aembed():
     import asyncio as aio
+    from unittest.mock import patch
 
-    class SlowStub(StubEmbedder):
-        def __init__(self):
-            super().__init__(dim=2)
-            self.max_in_flight = 0
-            self._in = 0
+    from code_rag.intelligence.openai_embedder import OpenAICompatEmbedder
 
-        async def aembed(self, texts):
-            self._in += 1
-            self.max_in_flight = max(self.max_in_flight, self._in)
-            await aio.sleep(0.05)
-            self._in -= 1
-            return await super().aembed(texts)
-
-    stub = SlowStub()
     storage = MagicMock()
-    storage.embedder = stub
     storage.embedding_model_dirty = False
     storage.get_unit = AsyncMock(return_value=None)
     storage.has_embedding = AsyncMock(return_value=False)
     storage.upsert_unit = AsyncMock()
     storage.delete_stale_units = AsyncMock()
-
-    def make_parser(uid):
-        p = MagicMock()
-        p.distill_file = AsyncMock(
-            return_value=[_unit(id=uid, metadata={"raw_code": "x"})]
-        )
-        return p
-
-    from code_rag.intelligence.openai_embedder import OpenAICompatEmbedder
-    from unittest.mock import patch
 
     real = OpenAICompatEmbedder(api_base="http://e", model="m")
     real.bind_dimension(2)
@@ -234,3 +210,68 @@ async def test_concurrent_sync_file_does_not_overlap_aembed():
     with patch("code_rag.intelligence.openai_embedder.litellm.aembedding", new=fake):
         await manager.sync_project(["a.py", "b.py"])
     assert max_in_flight == 1
+
+
+@pytest.mark.asyncio
+async def test_embed_and_upsert_count_mismatch():
+    class ShortStub(StubEmbedder):
+        async def aembed(self, texts):
+            return []
+
+    storage = MagicMock()
+    storage.embedding_model_dirty = False
+    storage.embedder = ShortStub(dim=4)
+    storage.get_unit = AsyncMock(return_value=None)
+    storage.has_embedding = AsyncMock(return_value=False)
+    storage.upsert_unit = AsyncMock()
+    storage.delete_stale_units = AsyncMock()
+    parser = MagicMock()
+    parser.distill_file = AsyncMock(return_value=[_unit(metadata={"raw_code": "x"})])
+    manager = _manager(storage, parser=parser)
+    with pytest.raises(IntelligenceError, match="count mismatch"):
+        await manager.sync_file("f.py")
+
+
+@pytest.mark.asyncio
+async def test_sync_file_distills_when_summary_missing():
+    storage = MagicMock()
+    storage.embedding_model_dirty = False
+    storage.embedder = StubEmbedder(dim=4)
+    existing = _unit(summary=None)
+    storage.get_unit = AsyncMock(return_value=existing)
+    storage.has_embedding = AsyncMock(return_value=True)
+    storage.upsert_unit = AsyncMock()
+    storage.delete_stale_units = AsyncMock()
+    parser = MagicMock()
+    parser.distill_file = AsyncMock(
+        return_value=[_unit(summary=None, metadata={"raw_code": "x"})]
+    )
+    intel = MagicMock()
+    intel.summarize = AsyncMock(return_value="filled")
+    manager = _manager(storage, parser=parser, intel=intel)
+    await manager.sync_file("f.py")
+    intel.summarize.assert_awaited_once()
+    stored = storage.upsert_unit.await_args.args[0]
+    assert stored.summary == "filled"
+
+
+@pytest.mark.asyncio
+async def test_sync_file_distill_failure_keeps_existing_summary():
+    storage = MagicMock()
+    storage.embedding_model_dirty = False
+    storage.embedder = StubEmbedder(dim=4)
+    existing = _unit(summary="old", code_hash="old")
+    storage.get_unit = AsyncMock(return_value=existing)
+    storage.has_embedding = AsyncMock(return_value=True)
+    storage.upsert_unit = AsyncMock()
+    storage.delete_stale_units = AsyncMock()
+    parser = MagicMock()
+    parser.distill_file = AsyncMock(
+        return_value=[_unit(summary=None, code_hash="new", metadata={"raw_code": "x"})]
+    )
+    intel = MagicMock()
+    intel.summarize = AsyncMock(side_effect=RuntimeError("llm down"))
+    manager = _manager(storage, parser=parser, intel=intel)
+    await manager.sync_file("f.py")
+    stored = storage.upsert_unit.await_args.args[0]
+    assert stored.summary == "old"

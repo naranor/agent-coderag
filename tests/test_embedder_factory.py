@@ -50,6 +50,14 @@ async def test_onnx_plus_remote_warns_stderr(capsys):
 
 
 @pytest.mark.asyncio
+async def test_both_set_without_onnx_skips_warning(capsys):
+    cfg = DistillerConfig(embedding_base="http://e", embedding_model="emb")
+    embedder = await create_embedder(cfg)
+    assert isinstance(embedder, OpenAICompatEmbedder)
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.asyncio
 async def test_neither_returns_local():
     cfg = DistillerConfig()
     with patch(

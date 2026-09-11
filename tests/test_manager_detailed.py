@@ -197,9 +197,9 @@ class TestManagerDetailed:
     async def test_manager_close(self, manager):
         """Test resource release on close."""
         # Add close method to intelligence if missing (for mock)
-        manager.intelligence.close = MagicMock()
+        manager.intelligence.close = AsyncMock()
 
         await manager.close()
 
         manager.storage.close.assert_called_once()
-        manager.intelligence.close.assert_called_once()
+        manager.intelligence.close.assert_awaited_once()
