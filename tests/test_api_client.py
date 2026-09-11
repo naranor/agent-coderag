@@ -115,7 +115,7 @@ async def test_run_sync_noop_when_no_path_and_not_index_all():
 
 @pytest.mark.asyncio
 async def test_config_does_not_create_manager():
-    with patch("code_rag.api.client.create_manager") as mock_create:
+    with patch("code_rag.api.client.create_manager", new=AsyncMock()) as mock_create:
         rag = CodeRAG()
         with patch(
             "code_rag.api.client.load_or_update_config", return_value=MagicMock()
@@ -126,7 +126,7 @@ async def test_config_does_not_create_manager():
 
 @pytest.mark.asyncio
 async def test_setup_does_not_create_manager():
-    with patch("code_rag.api.client.create_manager") as mock_create:
+    with patch("code_rag.api.client.create_manager", new=AsyncMock()) as mock_create:
         rag = CodeRAG()
         with patch(
             "code_rag.api.client.run_setup",
@@ -139,7 +139,7 @@ async def test_setup_does_not_create_manager():
 @pytest.mark.asyncio
 async def test_sync_noop_without_path_and_index_all_false():
     rag = CodeRAG()
-    with patch("code_rag.api.client.create_manager") as mock_create:
+    with patch("code_rag.api.client.create_manager", new=AsyncMock()) as mock_create:
         result = await rag.sync(path=None, index_all=False, force=False)
         assert result.indexed_files == 0
         mock_create.assert_not_called()
@@ -150,37 +150,10 @@ async def test_search_lazy_creates_and_closes_manager():
     manager = MagicMock()
     manager.search = AsyncMock(return_value=[])
     manager.close = AsyncMock()
-    with patch("code_rag.api.client.create_manager", return_value=manager):
+    with patch(
+        "code_rag.api.client.create_manager", new=AsyncMock(return_value=manager)
+    ):
         async with CodeRAG() as rag:
             await rag.search("q", limit=3)
         manager.search.assert_awaited_once_with("q", limit=3)
         manager.close.assert_awaited()
-
-
-def test_create_manager_wires_components():
-    from code_rag.services.factory import create_manager
-
-    with patch("code_rag.services.factory.DistillerConfig") as mock_config_cls, patch(
-        "code_rag.services.factory.Distiller"
-    ) as mock_distiller, patch(
-        "code_rag.services.factory.Embedder"
-    ) as mock_embedder, patch(
-        "code_rag.services.factory.DuckDBStorage"
-    ) as mock_storage, patch(
-        "code_rag.services.factory.MultiParser"
-    ) as mock_parser, patch(
-        "code_rag.services.factory.CodeRAGManager"
-    ) as mock_manager_cls:
-        mock_config_cls.load.return_value = MagicMock()
-        mock_manager_cls.return_value = MagicMock(name="manager")
-
-        manager = create_manager(
-            "test.db", onnx_path="model.onnx", allow_build_execution=True
-        )
-
-        assert manager is mock_manager_cls.return_value
-        mock_embedder.assert_called_once_with(model_path="model.onnx")
-        mock_storage.assert_called_once()
-        mock_parser.assert_called_once()
-        mock_distiller.assert_called_once()
-        assert mock_manager_cls.call_args.kwargs["allow_build_execution"] is True

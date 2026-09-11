@@ -1,13 +1,17 @@
 import pytest
+import pytest_asyncio
 import duckdb
 from code_rag.storage.duckdb_impl import DuckDBStorage
 from code_rag.core.models import KnowledgeUnit, UnitKind, Relation, RelationType
+from tests.embedder_stubs import StubEmbedder
 
 
-@pytest.fixture
-def storage(tmp_path):
-    db_path = tmp_path / "test.db"
-    return DuckDBStorage(str(db_path))
+@pytest_asyncio.fixture
+async def storage(tmp_path):
+    stub = StubEmbedder()
+    store = await DuckDBStorage.open(str(tmp_path / "test.db"), stub)
+    yield store
+    await store.close()
 
 
 class TestStorageDetailed:
@@ -16,14 +20,15 @@ class TestStorageDetailed:
     @pytest.mark.asyncio
     async def test_delete_stale_units(self, storage):
         """Test garbage collection of units."""
+        vec = [0.0] * 384
         u1 = KnowledgeUnit(
             id="f1:u1", name="u1", kind=UnitKind.FUNCTION, path="f1", code_hash="h1"
         )
         u2 = KnowledgeUnit(
             id="f1:u2", name="u2", kind=UnitKind.FUNCTION, path="f1", code_hash="h2"
         )
-        await storage.upsert_unit(u1)
-        await storage.upsert_unit(u2)
+        await storage.upsert_unit(u1, vector=vec)
+        await storage.upsert_unit(u2, vector=vec)
 
         # Confirm 2 units
         res = storage.conn.execute("SELECT count(*) FROM units").fetchone()
@@ -39,13 +44,14 @@ class TestStorageDetailed:
     @pytest.mark.asyncio
     async def test_search_units_batch_relations(self, storage):
         """Test search_units correctly fetches relations in batch."""
+        vec = [0.0] * 384
         u1 = KnowledgeUnit(
             id="u1", name="u1", kind=UnitKind.FUNCTION, path="p1", code_hash="h1"
         )
         rel = Relation(from_id="u1", to_id="u2", type=RelationType.CALLS)
         u1.relations = [rel]
 
-        await storage.upsert_unit(u1)
+        await storage.upsert_unit(u1, vector=vec)
 
         # Search for it
         results = await storage.search_units("u1")

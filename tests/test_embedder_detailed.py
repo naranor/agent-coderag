@@ -26,6 +26,9 @@ def mock_session():
     mock_input = MagicMock()
     mock_input.name = "input_ids"
     session.get_inputs.return_value = [mock_input]
+    out = MagicMock()
+    out.shape = (None, None, 384)
+    session.get_outputs.return_value = [out]
     return session
 
 
@@ -79,14 +82,15 @@ class TestEmbedderDetailed:
             assert isinstance(embeddings, np.ndarray)
             assert embeddings.shape == (2, 384)
 
-    def test_embedder_close(self, mock_tokenizer, mock_session):
+    @pytest.mark.asyncio
+    async def test_embedder_close(self, mock_tokenizer, mock_session):
         with patch(
             "tokenizers.Tokenizer.from_file", return_value=mock_tokenizer
         ), patch("onnxruntime.InferenceSession", return_value=mock_session), patch(
             "os.path.exists", return_value=True
         ):
             embedder = Embedder(model_path="fake/dir/model.onnx")
-            embedder.close()
+            await embedder.close()
             assert embedder.session is None
 
     def test_embed_empty_list_triggers_error(self, mock_tokenizer, mock_session):

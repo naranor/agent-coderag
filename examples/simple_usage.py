@@ -14,7 +14,7 @@ async def main():
 
     # Initialize embedder (will automatically find models in global cache)
     embedder = Embedder()
-    storage = DuckDBStorage(db_path, embedder=embedder)
+    storage = await DuckDBStorage.open(db_path, embedder)
 
     # Use MultiParser which now uses Tree-Sitter for 25+ languages
     # It automatically detects the language and loads the grammar
@@ -53,6 +53,7 @@ async def main():
             print(f"  Intent: {unit.summary}")
 
     # Cleanup
+    await manager.close()
     if os.path.exists(db_path):
         os.remove(db_path)
 

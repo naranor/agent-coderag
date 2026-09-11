@@ -17,9 +17,12 @@ from ..intelligence.embedder import Embedder, get_global_dir
 from ..core.utils import validate_path
 from ..core.exceptions import CodeRAGError
 from ..services import sync as sync_service
+from ..services.config import apply_config_updates
 from ..services.discovery_api import run_api
+from ..services.factory import create_manager
 from ..services.search import run_search
 from ..services.setup import run_setup
+from ..api.models import SyncResult
 
 logger = logging.getLogger(__name__)
 
@@ -57,38 +60,58 @@ def should_index(path: Path, ignore_spec: Optional[pathspec.PathSpec] = None) ->
     return sync_service.should_index(path, ignore_spec)
 
 
+def _emit_sync_outcome(result: SyncResult, *, json_mode: bool, label: str) -> None:
+    if result.status == "success":
+        if json_mode:
+            print(json.dumps({"status": "success", "indexed_files": "auto"}))
+        return
+    errors = [{"file": err.file, "message": err.message} for err in result.errors]
+    if json_mode:
+        print(
+            json.dumps(
+                {
+                    "status": "error",
+                    "message": f"{len(errors)} file(s) failed",
+                    "errors": errors,
+                }
+            )
+        )
+    else:
+        print(f"{label} completed with errors.", file=sys.stderr)
+    raise SystemExit(1)
+
+
 async def sync_cmd(args):
     if args.path:
         args.path = str(validate_path(args.path))
 
-    manager = get_manager(
+    manager = await get_manager(
         args.db,
         args.onnx,
         allow_build_execution=getattr(args, "allow_build_execution", False),
     )
     try:
-        await sync_service.run_sync(
+        result = await sync_service.run_sync(
             manager,
             root=Path.cwd(),
             path=args.path,
             index_all=bool(args.all),
             force=bool(args.force),
         )
-
-        if args.json:
-            print(json.dumps({"status": "success", "indexed_files": "auto"}))
+        _emit_sync_outcome(result, json_mode=args.json, label="Sync")
     except Exception as e:
         logger.error("Sync failed: %s", e)
         if args.json:
             print(json.dumps({"status": "error", "message": str(e)}))
         else:
             print(f"Error: {e}", file=sys.stderr)
+        raise SystemExit(1) from e
     finally:
         await manager.close()
 
 
 async def search_cmd(args):
-    manager = get_manager(args.db, args.onnx)
+    manager = await get_manager(args.db, args.onnx)
     try:
         results = await run_search(manager, args.query, limit=args.limit)
 
@@ -122,7 +145,7 @@ async def search_cmd(args):
 
 
 async def api_cmd(args):
-    manager = get_manager(args.db, args.onnx)
+    manager = await get_manager(args.db, args.onnx)
     try:
         report = await run_api(manager, args.library, lang=args.lang)
 
@@ -140,28 +163,59 @@ async def api_cmd(args):
         await manager.close()
 
 
+DISTILLER_KEYS = ("model", "api_base", "api_key", "provider", "temperature")
+EMBEDDING_KEYS = (
+    "embedding_base",
+    "embedding_key",
+    "embedding_model",
+    "embedding_provider",
+)
+
+
 def config_cmd(args):
     config = DistillerConfig.load()
-
-    # If no args, just show current config
-    if not (args.url or args.key or args.model or args.provider):
+    embedding_url = getattr(args, "embedding_url", None)
+    embedding_key = getattr(args, "embedding_key", None)
+    embedding_model = getattr(args, "embedding_model", None)
+    embedding_provider = getattr(args, "embedding_provider", None)
+    clear_embedding = bool(getattr(args, "clear_embedding", False))
+    is_update = any(
+        [
+            args.url is not None,
+            args.key is not None,
+            args.model is not None,
+            args.provider is not None,
+            embedding_url is not None,
+            embedding_key is not None,
+            embedding_model is not None,
+            embedding_provider is not None,
+            clear_embedding,
+        ]
+    )
+    if not is_update:
+        dump = config.model_dump()
         if args.json:
-            print(json.dumps(config.model_dump(), indent=2))
+            print(json.dumps(dump, indent=2))
         else:
-            print("Current configuration:")
-            for k, v in config.model_dump().items():
-                print(f"  {k}: {v}")
+            print("Distiller:")
+            for key in DISTILLER_KEYS:
+                print(f"  {key}: {dump.get(key)}")
+            print("Embedding:")
+            for key in EMBEDDING_KEYS:
+                print(f"  {key}: {dump.get(key)}")
         return
-
-    if args.url:
-        config.api_base = args.url
-    if args.key:
-        config.api_key = args.key
-    if args.model:
-        config.model = args.model
-    if args.provider:
-        config.provider = args.provider
-
+    config = apply_config_updates(
+        config,
+        url=args.url,
+        key=args.key,
+        model=args.model,
+        provider=args.provider,
+        embedding_url=embedding_url,
+        embedding_key=embedding_key,
+        embedding_model=embedding_model,
+        embedding_provider=embedding_provider,
+        clear_embedding=clear_embedding,
+    )
     config.save()
     if args.json:
         print(json.dumps({"status": "success", "message": "Config updated"}))
@@ -206,39 +260,41 @@ async def setup_cmd(args):
 
 async def rebuild_cmd(args):
     """Full re-index of the current project."""
-    # Force re-distill all files
-    args.all = True
-    args.force = True
-    args.path = None
-    await sync_cmd(args)
+    manager = await get_manager(
+        args.db,
+        args.onnx,
+        allow_build_execution=getattr(args, "allow_build_execution", False),
+        wipe=True,
+    )
+    try:
+        result = await sync_service.run_rebuild(manager, root=Path.cwd())
+        _emit_sync_outcome(result, json_mode=args.json, label="Rebuild")
+    except Exception as exc:
+        logger.error("Rebuild failed: %s", exc)
+        if args.json:
+            print(json.dumps({"status": "error", "message": str(exc)}))
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    finally:
+        await manager.close()
 
 
-def get_manager(
+async def get_manager(
     db_path: str,
     onnx_path: Optional[str] = None,
     allow_build_execution: bool = False,
+    wipe: bool = False,
 ) -> CodeRAGManager:
-    """Wires a manager from the module-level components (legacy patch points).
-
-    Mirrors ``code_rag.services.factory.create_manager`` but resolves the
-    components through this module so existing CLI tests can substitute them.
-    """
-    config = DistillerConfig.load()
-    distiller = Distiller(config)
-    embedder = Embedder(model_path=onnx_path)
-
-    storage = DuckDBStorage(db_path, embedder=embedder)
-    parser = MultiParser()
-
-    return CodeRAGManager(
-        storage,
-        parser,
-        distiller,
+    return await create_manager(
+        db_path,
+        onnx_path,
         allow_build_execution=allow_build_execution,
+        wipe=wipe,
     )
 
 
-def main():
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CodeRAG: API Knowledge Bridge.")
     parser.add_argument(
         "--db", default="code_rag.db", help="Path to DuckDB database file."
@@ -278,6 +334,24 @@ def main():
     cfg.add_argument("--key", help="API key.")
     cfg.add_argument("--model", help="Model name.")
     cfg.add_argument("--provider", help="Provider name (openai, ollama).")
+    cfg.add_argument(
+        "--embedding-url", dest="embedding_url", help="Embedding API base URL."
+    )
+    cfg.add_argument("--embedding-key", dest="embedding_key", help="Embedding API key.")
+    cfg.add_argument(
+        "--embedding-model", dest="embedding_model", help="Remote embedding model id."
+    )
+    cfg.add_argument(
+        "--embedding-provider",
+        dest="embedding_provider",
+        help="LiteLLM custom_llm_provider for embeddings.",
+    )
+    cfg.add_argument(
+        "--clear-embedding",
+        dest="clear_embedding",
+        action="store_true",
+        help="Clear remote embedding config (local MiniLM).",
+    )
 
     # Setup
     setup = subparsers.add_parser("setup", help="Initial setup (download models).")
@@ -285,7 +359,11 @@ def main():
 
     # Rebuild
     subparsers.add_parser("rebuild", help="Full re-index of the project.")
+    return parser
 
+
+def main():
+    parser = _build_arg_parser()
     try:
         args = parser.parse_args()
 

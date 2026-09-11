@@ -11,12 +11,62 @@ class IParser(ABC):
         pass
 
 
+class IEmbedder(ABC):
+    """Port for local ONNX and remote OpenAI-compatible embedders."""
+
+    @property
+    @abstractmethod
+    def dimension(self) -> int:
+        """Bound embedding width. No IO. Raise if unbound."""
+
+    @property
+    @abstractmethod
+    def model_id(self) -> str:
+        """Stable id written to index_meta (local:mini-lm or remote model)."""
+
+    @abstractmethod
+    def bind_dimension(self, dim: int) -> None:
+        """Record the index dimension before search/upsert."""
+
+    @abstractmethod
+    async def aembed(self, texts: list[str]) -> list[list[float]]:
+        """Return len(texts) L2-normalized rows, 1:1 with input order."""
+
+    @abstractmethod
+    async def close(self) -> None:
+        """Release ONNX session and/or HTTP resources."""
+
+
 class IStorage(ABC):
     """Interface for storing the index."""
 
     @abstractmethod
-    async def upsert_unit(self, unit: KnowledgeUnit):
+    async def upsert_unit(
+        self, unit: KnowledgeUnit, vector: Optional[List[float]] = None
+    ):
         pass
+
+    @abstractmethod
+    async def has_embedding(self, unit_id: str) -> bool:
+        pass
+
+    @abstractmethod
+    async def list_units(self) -> List[KnowledgeUnit]:
+        pass
+
+    @abstractmethod
+    async def mark_embedding_model_synced(self) -> None:
+        pass
+
+    @property
+    @abstractmethod
+    def embedding_model_dirty(self) -> bool:
+        pass
+
+    @property
+    @abstractmethod
+    def embedder(self) -> IEmbedder:
+        """Bound embedder used for vector search and upsert."""
 
     @abstractmethod
     async def get_unit(self, unit_id: str) -> Optional[KnowledgeUnit]:

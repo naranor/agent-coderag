@@ -1,3 +1,18 @@
+## [Unreleased]
+
+### Added
+- OpenAI-compatible remote embeddings (LiteLLM `aembedding`) alongside local ONNX MiniLM.
+- CLI flags `--embedding-url`, `--embedding-key`, `--embedding-model`, `--embedding-provider`, and `--clear-embedding`.
+- Per-file `sync` / `rebuild` error reporting: JSON `errors` list, human stderr summary, exit code 1.
+
+### Changed
+- Embedding dimension is autodetected and stored in DuckDB `index_meta`; `rebuild` drops embedding rows and re-binds.
+- Embedder bind/probe is deferred until the first vector operation so `api` works without ONNX setup or a reachable embedding endpoint.
+- `sync --all` re-embeds existing units even when the walk finds no indexable files.
+
+### Fixed
+- File-level worker failures no longer report overall `success` after a partial index.
+
 ## [1.3.3] - 2026-09-09
 
 ### Added

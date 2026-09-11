@@ -7,6 +7,7 @@ import pytest
 from code_rag.core.manager import CodeRAGManager
 from code_rag.core.interfaces import IStorage, IParser, IIntelligence
 from code_rag.core.models import KnowledgeUnit, UnitKind
+from tests.embedder_stubs import StubEmbedder
 
 
 @pytest.fixture
@@ -18,6 +19,11 @@ def mock_storage():
     storage.delete_stale_units = AsyncMock()
     storage.set_dependency_path = AsyncMock()
     storage.close = AsyncMock()
+    storage.has_embedding = AsyncMock(return_value=False)
+    storage.list_units = AsyncMock(return_value=[])
+    storage.mark_embedding_model_synced = AsyncMock()
+    storage.embedding_model_dirty = False
+    storage.embedder = StubEmbedder()
     return storage
 
 

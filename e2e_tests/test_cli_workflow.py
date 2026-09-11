@@ -4,12 +4,25 @@ import shutil
 import sys
 from pathlib import Path
 
+from code_rag.intelligence.embedder import get_global_dir
+
 # Use the same temporary directory for E2E consistency
 E2E_TMP = Path(os.getenv("TEMP", "/tmp")) / "agent-coderag-e2e"
+
+_GLOBAL_CONFIG_SNAPSHOT: str | None = None
+_GLOBAL_CONFIG_EXISTED: bool = False
 
 
 def setup_module(module):
     """Prepare a dummy project for E2E testing."""
+    global _GLOBAL_CONFIG_SNAPSHOT, _GLOBAL_CONFIG_EXISTED
+
+    config_path = get_global_dir() / "config.json"
+    _GLOBAL_CONFIG_EXISTED = config_path.exists()
+    _GLOBAL_CONFIG_SNAPSHOT = (
+        config_path.read_text(encoding="utf-8") if _GLOBAL_CONFIG_EXISTED else None
+    )
+
     if E2E_TMP.exists():
         shutil.rmtree(E2E_TMP)
     E2E_TMP.mkdir(parents=True)
@@ -28,9 +41,20 @@ def top_level_fn():
     # Create a .gitignore
     (E2E_TMP / ".gitignore").write_text("*.log\n")
 
+    # Force local MiniLM embeddings regardless of developer global config
+    clear_res = run_cli("config", "--clear-embedding")
+    assert clear_res.returncode == 0
+
 
 def teardown_module(module):
     """Cleanup."""
+    config_path = get_global_dir() / "config.json"
+    if _GLOBAL_CONFIG_EXISTED:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(_GLOBAL_CONFIG_SNAPSHOT or "", encoding="utf-8")
+    elif config_path.exists():
+        config_path.unlink()
+
     if E2E_TMP.exists():
         shutil.rmtree(E2E_TMP)
 

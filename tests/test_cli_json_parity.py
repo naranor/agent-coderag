@@ -7,17 +7,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from code_rag.entry import cli
+from code_rag.intelligence.distiller import DistillerConfig
 
 
 @pytest.mark.asyncio
 async def test_sync_json_success_shape(tmp_path):
     mock_manager = MagicMock()
     mock_manager.sync_dependencies = AsyncMock()
-    mock_manager.sync_project = AsyncMock()
+    mock_manager.sync_project = AsyncMock(return_value=[])
     mock_manager.close = AsyncMock()
-    with patch("code_rag.entry.cli.get_manager", return_value=mock_manager), patch(
-        "code_rag.entry.cli.validate_path", return_value=tmp_path
-    ):
+    with patch(
+        "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+    ), patch("code_rag.entry.cli.validate_path", return_value=tmp_path):
         args = argparse.Namespace(
             db="test.db",
             onnx=None,
@@ -43,7 +44,9 @@ async def test_api_json_omits_language():
     mock_manager = MagicMock()
     mock_manager.discovery.extract_api = AsyncMock(return_value="REPORT")
     mock_manager.close = AsyncMock()
-    with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+    with patch(
+        "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+    ):
         args = argparse.Namespace(
             db="test.db",
             onnx=None,
@@ -83,7 +86,9 @@ async def test_setup_json_success_is_silent(tmp_path):
 
 
 def test_config_json_update_shape():
-    with patch("code_rag.entry.cli.DistillerConfig.load") as mock_load:
+    with patch.object(DistillerConfig, "save"), patch(
+        "code_rag.entry.cli.DistillerConfig.load"
+    ) as mock_load:
         cfg = MagicMock()
         cfg.model_dump.return_value = {"model": "x"}
         mock_load.return_value = cfg

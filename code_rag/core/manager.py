@@ -1,17 +1,32 @@
 import logging
 import asyncio
+import inspect
 import os
 import shutil
 import subprocess  # nosec
+import sys
 from pathlib import Path
 from typing import List, Optional
 from .interfaces import IStorage, IParser, IIntelligence
 from .models import KnowledgeUnit
 from .utils import validate_path
-from .constants import MAX_CONCURRENT_TASKS
+from .constants import MAX_CONCURRENT_TASKS, EMBEDDING_BATCH_SIZE
+from .exceptions import StorageError, IntelligenceError
 from ..discovery.manager import DiscoveryManager
 
 logger = logging.getLogger(__name__)
+
+
+def _report_worker_failure(path: str, exc: BaseException) -> tuple[str, str]:
+    logger.error("Worker failed to sync %s: %s", path, exc)
+    print(f"Worker failed to sync {path}: {exc}", file=sys.stderr, flush=True)
+    return (path, str(exc))
+
+
+def unit_embedding_text(unit: KnowledgeUnit) -> str:
+    return unit.summary or (
+        f"{unit.kind.value} {unit.name} {unit.signature or ''} {unit.docstring or ''}"
+    )
 
 
 class CodeRAGManager:
@@ -192,20 +207,46 @@ allprojects {
             if init_script.exists():
                 init_script.unlink()
 
+    async def _reject_dirty_incremental(self) -> None:
+        if getattr(self.storage, "embedding_model_dirty", False):
+            raise StorageError("Embedding model changed; run rebuild or sync --all")
+
+    async def _ensure_embeddings(self) -> None:
+        ensure = getattr(self.storage, "ensure_embeddings_bound", None)
+        if callable(ensure):
+            result = ensure()
+            if inspect.isawaitable(result):
+                await result
+
+    async def _reembed_all_units(self) -> None:
+        units = await self.storage.list_units()
+        await self._embed_and_upsert(units)
+        await self.storage.mark_embedding_model_synced()
+
+    async def _embed_and_upsert(self, units: list[KnowledgeUnit]) -> None:
+        if not units:
+            return
+        await self._ensure_embeddings()
+        embedder = self.storage.embedder
+        for start in range(0, len(units), EMBEDDING_BATCH_SIZE):
+            chunk = units[start : start + EMBEDDING_BATCH_SIZE]
+            texts = [unit_embedding_text(unit) for unit in chunk]
+            vectors = await embedder.aembed(texts)
+            if len(vectors) != len(chunk):
+                raise IntelligenceError("Embedding count mismatch")
+            for unit, vector in zip(chunk, vectors):
+                await self.storage.upsert_unit(unit, vector=vector)
+
     async def sync_file(self, file_path: str, force_distill: bool = False) -> None:
         """
         Processes a single file and syncs it with the storage.
         """
-        # 1. Parse AST to get units
+        await self._reject_dirty_incremental()
         current_units = await self.parser.distill_file(file_path)
-
+        pending: list[KnowledgeUnit] = []
         for unit in current_units:
-            # v5.40: Delta-distillation logic
             raw_code = unit.metadata.pop("raw_code", "")
-
-            # 2. Get existing unit to check hash
             existing_unit = await self.storage.get_unit(unit.id)
-
             should_distill = force_distill
             if not existing_unit:
                 should_distill = True
@@ -216,29 +257,36 @@ allprojects {
             elif not existing_unit.summary:
                 should_distill = True
                 logger.info("Summary missing for %s", unit.name)
-
             if should_distill:
                 async with self.semaphore:
                     logger.info(
                         "Distilling summary for %s in %s...", unit.name, unit.path
                     )
                     try:
-                        summary = await self.intelligence.summarize(raw_code, unit.name)
-                        unit.summary = summary
-                    except Exception as e:
-                        logger.error("Failed to distill %s: %s", unit.name, e)
-                        # Keep old summary if available, otherwise stay None
+                        unit.summary = await self.intelligence.summarize(
+                            raw_code, unit.name
+                        )
+                    except Exception as exc:
+                        logger.error("Failed to distill %s: %s", unit.name, exc)
                         unit.summary = existing_unit.summary if existing_unit else None
             else:
-                # Reuse existing summary if code hasn't changed
                 unit.summary = existing_unit.summary if existing_unit else None
 
-            # 3. Save to storage (includes embedding generation)
-            await self.storage.upsert_unit(unit)
-
-        # 4. Garbage Collection: Remove units that were in this file but are no longer there
-        current_unit_ids = [u.id for u in current_units]
-        await self.storage.delete_stale_units(file_path, current_unit_ids)
+            has_vec = await self.storage.has_embedding(unit.id)
+            skip = (
+                existing_unit is not None
+                and existing_unit.code_hash == unit.code_hash
+                and existing_unit.summary == unit.summary
+                and has_vec
+            )
+            if skip:
+                await self.storage.upsert_unit(unit)
+            else:
+                pending.append(unit)
+        await self._embed_and_upsert(pending)
+        await self.storage.delete_stale_units(
+            file_path, [unit.id for unit in current_units]
+        )
 
     async def search(self, query: str, limit: int = 5) -> List[KnowledgeUnit]:
         """
@@ -246,38 +294,58 @@ allprojects {
         """
         return await self.storage.search_units(query, limit=limit)
 
-    async def sync_project(self, paths: List[str], force_distill: bool = False) -> None:
+    async def sync_project(
+        self,
+        paths: List[str],
+        force_distill: bool = False,
+        *,
+        index_all: bool = False,
+    ) -> list[tuple[str, str]]:
         """
         Concurrent synchronization of multiple files using a worker pool.
+
+        Returns (path, error) pairs for files that failed. The queue is drained
+        even if some workers fail; callers must not treat an empty return as
+        "raised" — check the list instead of catching after completion.
         """
+        if getattr(self.storage, "embedding_model_dirty", False):
+            if not index_all:
+                raise StorageError("Embedding model changed; run rebuild or sync --all")
+            await self._reembed_all_units()
         if not paths:
-            return
+            return []
 
         queue: asyncio.Queue[str] = asyncio.Queue()
-        for p in paths:
-            await queue.put(p)
+        for path in paths:
+            await queue.put(path)
 
-        async def worker() -> None:
+        async def worker() -> list[tuple[str, str]]:
+            failures: list[tuple[str, str]] = []
             while not queue.empty():
                 path = await queue.get()
                 try:
-                    await self.sync_file(path, force_distill=force_distill)
-                except Exception as e:
-                    logger.error("Worker failed to sync %s: %s", path, e)
+                    await self.sync_file(
+                        path,
+                        force_distill=force_distill,
+                    )
+                except Exception as exc:
+                    failures.append(_report_worker_failure(path, exc))
                 finally:
                     queue.task_done()
+            return failures
 
-        # Run limited number of workers
         worker_count = min(len(paths), self.max_concurrency)
         tasks = [asyncio.create_task(worker()) for _ in range(worker_count)]
-
-        await asyncio.gather(*tasks)
+        batches = await asyncio.gather(*tasks)
         logger.info("Project sync complete.")
+        return [item for batch in batches for item in batch]
 
     async def close(self) -> None:
         """Releases manager resources."""
         await self.storage.close()
-        # If intelligence has close method (Embedder does)
         if hasattr(self.intelligence, "close"):
-            self.intelligence.close()
+            closer = self.intelligence.close
+            result = closer()
+            if asyncio.iscoroutine(result):
+                await result
         logger.info("CodeRAG manager closed.")

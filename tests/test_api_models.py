@@ -1,9 +1,26 @@
-from code_rag.api.models import SyncResult, ApiReport, SetupResult
+from code_rag.api.models import SyncResult, SyncFileError, ApiReport, SetupResult
 
 
 def test_sync_result_shape():
     result = SyncResult(status="success", indexed_files=3)
-    assert result.model_dump() == {"status": "success", "indexed_files": 3}
+    assert result.model_dump() == {
+        "status": "success",
+        "indexed_files": 3,
+        "errors": [],
+    }
+
+
+def test_sync_result_errors_shape():
+    result = SyncResult(
+        status="error",
+        indexed_files=2,
+        errors=[SyncFileError(file="src/a.py", message="timeout")],
+    )
+    assert result.model_dump() == {
+        "status": "error",
+        "indexed_files": 2,
+        "errors": [{"file": "src/a.py", "message": "timeout"}],
+    }
 
 
 def test_api_report_shape():

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import logging
 import numpy as np
@@ -5,8 +6,14 @@ from typing import List, Optional
 from pathlib import Path
 import onnxruntime as ort
 from tokenizers import Tokenizer
-from ..core.constants import MAX_TOKEN_LENGTH, PAD_ID, PAD_TOKEN
+from ..core.constants import (
+    MAX_TOKEN_LENGTH,
+    PAD_ID,
+    PAD_TOKEN,
+    LOCAL_EMBEDDING_MODEL_ID,
+)
 from ..core.exceptions import IntelligenceError
+from ..core.interfaces import IEmbedder
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +35,13 @@ def get_default_model_dir() -> Path:
     return get_global_dir() / "models" / "mini-lm"
 
 
-class Embedder:
+def l2_normalize_rows(matrix: np.ndarray) -> np.ndarray:
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms = np.clip(norms, a_min=1e-12, a_max=None)
+    return matrix / norms
+
+
+class LocalOnnxEmbedder(IEmbedder):
     """
     Local multilingual embedder using ONNX Runtime and Tokenizers.
     """
@@ -37,6 +50,8 @@ class Embedder:
         self.model_path = model_path
         self.session: Optional[ort.InferenceSession] = None
         self.tokenizer: Optional[Tokenizer] = None
+        self._dimension: Optional[int] = None
+        self._embed_lock = asyncio.Semaphore(1)
 
         if not self.model_path:
             global_dir = get_default_model_dir()
@@ -53,6 +68,31 @@ class Embedder:
         if self.model_path and os.path.exists(self.model_path):
             self._init_tokenizer()
             self._init_session()
+
+        if self.session is not None:
+            out_shape = self.session.get_outputs()[0].shape
+            self._dimension = int(out_shape[-1])
+
+    @property
+    def dimension(self) -> int:
+        if self._dimension is None:
+            raise IntelligenceError("Embedding dimension is not bound")
+        return self._dimension
+
+    @property
+    def model_id(self) -> str:
+        return LOCAL_EMBEDDING_MODEL_ID
+
+    def bind_dimension(self, dim: int) -> None:
+        if not isinstance(dim, int) or isinstance(dim, bool) or dim < 1:
+            raise IntelligenceError("embedding dimension must be a positive int")
+        if self._dimension is None:
+            self._dimension = dim
+            return
+        if dim != self._dimension:
+            raise IntelligenceError(
+                f"Cannot bind dimension {dim}; embedder already bound to {self._dimension}"
+            )
 
     def _init_tokenizer(self):
         if not self.model_path:
@@ -93,28 +133,25 @@ class Embedder:
     def embed(self, texts: List[str]) -> np.ndarray:
         if not self.session or not self.tokenizer:
             raise IntelligenceError(
-                "Embedder not initialized. Please ensure models are downloaded by running 'agent-coderag setup'."
+                "Embedder not initialized. Run 'agent-coderag setup' or configure remote embeddings."
             )
-
         try:
             encodings = self.tokenizer.encode_batch(texts)
             input_ids = np.array([e.ids for e in encodings], dtype=np.int64)
             attention_mask = np.array(
                 [e.attention_mask for e in encodings], dtype=np.int64
             )
-
             inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
             model_inputs = [i.name for i in self.session.get_inputs()]
             if "token_type_ids" in model_inputs:
                 inputs["token_type_ids"] = np.array(
                     [e.type_ids for e in encodings], dtype=np.int64
                 )
-
             outputs = self.session.run(None, inputs)
             embeddings = self._mean_pooling(outputs[0], attention_mask)
-            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-            norms = np.clip(norms, a_min=1e-12, a_max=None)
-            return embeddings / norms
+            return l2_normalize_rows(embeddings)
+        except IntelligenceError:
+            raise
         except Exception as e:
             logger.error("Embedding generation failed: %s", e)
             raise IntelligenceError(f"Failed to generate embeddings: {e}") from e
@@ -125,8 +162,15 @@ class Embedder:
         sum_mask = np.clip(input_mask_expanded.sum(axis=1), a_min=1e-9, a_max=None)
         return sum_embeddings / sum_mask
 
-    def close(self):
-        """Releases the ONNX Runtime session and resources."""
+    async def aembed(self, texts: list[str]) -> list[list[float]]:
+        async with self._embed_lock:
+            matrix = await asyncio.to_thread(self.embed, texts)
+            return matrix.tolist()
+
+    async def close(self) -> None:
         if self.session:
             self.session = None
             logger.info("Embedder resources released.")
+
+
+Embedder = LocalOnnxEmbedder

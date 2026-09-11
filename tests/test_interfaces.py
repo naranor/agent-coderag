@@ -1,5 +1,7 @@
 import pytest
 from typing import List, Optional
+from unittest.mock import MagicMock
+
 from code_rag.core.interfaces import IParser, IStorage, IIntelligence
 from code_rag.core.models import KnowledgeUnit, Relation, UnitKind, RelationType
 
@@ -31,8 +33,25 @@ class TestIStorage:
                 self.relations = []
                 self.deps = {}
 
-            async def upsert_unit(self, unit: KnowledgeUnit):
+            async def upsert_unit(self, unit: KnowledgeUnit, vector=None):
                 self.units[unit.id] = unit
+
+            async def has_embedding(self, unit_id: str) -> bool:
+                return unit_id in self.units
+
+            async def list_units(self):
+                return list(self.units.values())
+
+            async def mark_embedding_model_synced(self) -> None:
+                return None
+
+            @property
+            def embedding_model_dirty(self) -> bool:
+                return False
+
+            @property
+            def embedder(self):
+                return MagicMock()
 
             async def get_unit(self, unit_id: str):
                 return self.units.get(unit_id)

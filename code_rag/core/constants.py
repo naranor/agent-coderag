@@ -4,6 +4,10 @@ Central location for project-wide constants.
 
 # Embedding Model Constants
 EMBEDDING_DIM = 384
+EMBEDDING_BATCH_SIZE = 32
+EMBEDDING_REQUEST_TIMEOUT = 30
+EMBEDDING_PROBE_TEXT = "probe"
+LOCAL_EMBEDDING_MODEL_ID = "local:mini-lm"
 MAX_TOKEN_LENGTH = 512
 PAD_ID = 0
 PAD_TOKEN = "[PAD]"  # nosec B105

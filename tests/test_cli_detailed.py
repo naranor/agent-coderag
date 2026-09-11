@@ -102,12 +102,12 @@ class TestCLIDetailed:
     async def test_sync_cmd_json_success(self, tmp_path):
         mock_manager = MagicMock()
         mock_manager.sync_dependencies = AsyncMock()
-        mock_manager.sync_project = AsyncMock()
+        mock_manager.sync_project = AsyncMock(return_value=[])
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager), patch(
-            "code_rag.entry.cli.validate_path", return_value=tmp_path
-        ):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ), patch("code_rag.entry.cli.validate_path", return_value=tmp_path):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -134,7 +134,9 @@ class TestCLIDetailed:
         )
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -147,7 +149,9 @@ class TestCLIDetailed:
             old_stdout = sys.stdout
             sys.stdout = StringIO()
             try:
-                await cli.sync_cmd(args)
+                with pytest.raises(SystemExit) as exc:
+                    await cli.sync_cmd(args)
+                assert exc.value.code == 1
                 data = json.loads(sys.stdout.getvalue())
                 assert data["status"] == "error"
                 assert "Critical Failure" in data["message"]
@@ -161,7 +165,9 @@ class TestCLIDetailed:
         mock_manager.discovery.extract_api = AsyncMock(return_value="API Report")
         mock_manager.close = AsyncMock()
 
-        with patch("code_rag.entry.cli.get_manager", return_value=mock_manager):
+        with patch(
+            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
+        ):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
