@@ -157,6 +157,34 @@ def test_bind_rejects_invalid_and_mismatch():
 
 
 @pytest.mark.asyncio
+async def test_aembed_accepts_litellm_dict_items():
+    embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
+    resp = MagicMock()
+    resp.data = [{"embedding": [3.0, 4.0, 0.0], "index": 0, "object": "embedding"}]
+    with patch(
+        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        new=AsyncMock(return_value=resp),
+    ):
+        rows = await embedder.aembed(["probe"])
+    assert len(rows[0]) == 3
+    np.testing.assert_allclose(np.linalg.norm(rows[0]), 1.0, rtol=1e-5)
+
+
+@pytest.mark.asyncio
+async def test_aembed_flattens_nested_embedding_vector():
+    embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
+    embedder.bind_dimension(2)
+    resp = MagicMock()
+    resp.data = [{"embedding": [[1.0, 0.0]]}]
+    with patch(
+        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        new=AsyncMock(return_value=resp),
+    ):
+        rows = await embedder.aembed(["x"])
+    assert len(rows[0]) == 2
+
+
+@pytest.mark.asyncio
 async def test_aembed_rejects_unparseable_response():
     embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
     embedder.bind_dimension(2)

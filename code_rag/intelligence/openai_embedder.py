@@ -13,6 +13,18 @@ from .embedder import l2_normalize_rows
 logger = logging.getLogger(__name__)
 
 
+def _vector_from_item(item: object) -> list[float]:
+    if isinstance(item, dict):
+        vec = item.get("embedding")
+    else:
+        vec = getattr(item, "embedding", None)
+    if vec is None:
+        raise TypeError("embedding item has no embedding")
+    if isinstance(vec, (list, tuple)) and vec and isinstance(vec[0], (list, tuple)):
+        vec = vec[0]
+    return list(vec)
+
+
 class OpenAICompatEmbedder(IEmbedder):
     def __init__(
         self,
@@ -68,7 +80,7 @@ class OpenAICompatEmbedder(IEmbedder):
             except Exception as exc:
                 raise IntelligenceError(f"Embedding request failed: {exc}") from exc
         try:
-            raw = [list(item.embedding) for item in response.data]
+            raw = [_vector_from_item(item) for item in response.data]
         except Exception as exc:
             raise IntelligenceError(f"Embedding request failed: {exc}") from exc
         if len(raw) != len(texts):
