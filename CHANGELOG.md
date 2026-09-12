@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- Remote embeddings accept LiteLLM `aembedding` items as dicts (llama.cpp / OpenAI-compat servers).
+
 ## [1.3.4] - 2026-09-11
 
 ### Added
