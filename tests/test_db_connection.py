@@ -2,6 +2,7 @@ import threading
 import pytest
 from code_rag.core.error_codes import ErrorCode
 from code_rag.core.exceptions import StorageBusyError, StorageError
+from code_rag.storage import duckdb_impl
 from code_rag.storage.db_connection import AccessMode, open_db_connection
 from tests.embedder_stubs import StubEmbedder
 
@@ -101,6 +102,40 @@ async def test_thread_affinity_connect_execute_close(tmp_path):
     finally:
         # close must run on same executor thread — record via patched close if needed
         await storage.close()
+    assert len(ids) == 1
+    await emb.close()
+
+
+@pytest.mark.asyncio
+async def test_thread_affinity_bind_embeddings_and_finalize(tmp_path, monkeypatch):
+    """Open-finalize (_refresh_dirty_from_meta) and ensure_embeddings_bound
+    (_bind_embeddings/bind_embedder_dimension) SQL must run on the
+    connection's dedicated executor thread, never the event-loop thread.
+    """
+    ids = set()
+    main_thread_id = threading.get_ident()
+    original_meta_get = duckdb_impl._meta_get  # pylint: disable=protected-access
+
+    def spy_meta_get(conn, key):
+        ids.add(threading.get_ident())
+        return original_meta_get(conn, key)
+
+    monkeypatch.setattr(duckdb_impl, "_meta_get", spy_meta_get)
+
+    emb = StubEmbedder(dim=384)
+    storage = await open_db_connection(
+        tmp_path / "bind_aff.db",
+        emb,
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
+    try:
+        await storage.ensure_embeddings_bound()
+    finally:
+        await storage.close()
+
+    assert ids, "expected _meta_get to be exercised by finalize/bind"
+    assert main_thread_id not in ids
     assert len(ids) == 1
     await emb.close()
 
