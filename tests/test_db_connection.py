@@ -106,6 +106,25 @@ async def test_thread_affinity_connect_execute_close(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ro_rejects_wipe(tmp_path):
+    path = tmp_path / "ro.db"
+    emb = StubEmbedder(dim=384)
+    rw = await open_db_connection(
+        path, emb, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
+    await rw.close()
+    with pytest.raises(StorageError, match="wipe=True is not supported"):
+        await open_db_connection(
+            path,
+            None,
+            mode=AccessMode.READ_ONLY,
+            connect_timeout_seconds=0,
+            wipe=True,
+        )
+    await emb.close()
+
+
+@pytest.mark.asyncio
 async def test_metadata_only_ro_open_without_embedder(tmp_path):
     # Create RW first with embedder so file exists
     emb = StubEmbedder(dim=384)

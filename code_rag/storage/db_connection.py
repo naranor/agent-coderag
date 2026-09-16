@@ -73,6 +73,9 @@ async def open_db_connection(
     path = Path(path)
     read_only = mode is AccessMode.READ_ONLY
 
+    if wipe and read_only:
+        raise StorageError("wipe=True is not supported in read-only mode")
+
     if read_only:
         if not path.exists():
             raise StorageError(f"Database file not found: {path}")
@@ -104,7 +107,8 @@ async def open_db_connection(
         return storage
     except Exception:
         try:
-            conn.close()
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(executor, conn.close)
         except Exception:  # nosec B110
             pass
         executor.shutdown(wait=False)

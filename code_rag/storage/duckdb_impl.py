@@ -315,6 +315,8 @@ class DuckDBStorage(IStorage):
         executor = ThreadPoolExecutor(max_workers=1)
         loop = asyncio.get_running_loop()
         read_only = mode is AccessMode.READ_ONLY
+        if wipe and read_only:
+            raise StorageError("wipe=True is not supported in read-only mode")
         conn = await loop.run_in_executor(
             executor, lambda: duckdb.connect(path, read_only=read_only)
         )
@@ -328,7 +330,7 @@ class DuckDBStorage(IStorage):
             return storage
         except Exception:
             try:
-                conn.close()
+                await loop.run_in_executor(executor, conn.close)
             except Exception:  # nosec B110
                 pass
             executor.shutdown(wait=False)

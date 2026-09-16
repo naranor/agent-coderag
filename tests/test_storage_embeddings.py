@@ -4,6 +4,7 @@ import duckdb
 import pytest
 
 from code_rag.core.constants import EMBEDDING_PROBE_TEXT, LOCAL_EMBEDDING_MODEL_ID
+from code_rag.core.error_codes import ErrorCode
 from code_rag.core.exceptions import IntelligenceError, StorageError
 from code_rag.core.models import KnowledgeUnit, UnitKind
 from code_rag.storage.duckdb_impl import (
@@ -116,8 +117,9 @@ async def test_failed_bind_on_dim_mismatch(tmp_path):
     await storage.close()
     stub8 = StubEmbedder(dim=8, model_id="m8")
     storage = await DuckDBStorage.open(path, stub8, wipe=False)
-    with pytest.raises(StorageError, match="Run rebuild"):
+    with pytest.raises(StorageError, match="Run rebuild") as ei:
         await storage.ensure_embeddings_bound()
+    assert ei.value.code is ErrorCode.EMBEDDING_MISMATCH
     await storage.close()
     storage = await DuckDBStorage.open(path, stub16, wipe=False)
     await storage.ensure_embeddings_bound()
@@ -136,8 +138,9 @@ async def test_dim_mismatch_search_sync_storage_error(tmp_path):
     await storage.close()
     stub8 = StubEmbedder(dim=8, model_id="m8")
     storage = await DuckDBStorage.open(path, stub8, wipe=False)
-    with pytest.raises(StorageError, match="Run rebuild"):
+    with pytest.raises(StorageError, match="Run rebuild") as ei:
         await storage.ensure_embeddings_bound()
+    assert ei.value.code is ErrorCode.EMBEDDING_MISMATCH
     await storage.close()
 
 
@@ -219,8 +222,9 @@ async def test_corrupt_meta_storage_error(tmp_path):
     )
     await storage.close()
     storage = await DuckDBStorage.open(str(tmp_path / "t.db"), StubEmbedder(dim=384))
-    with pytest.raises(StorageError, match="Corrupt embedding metadata"):
+    with pytest.raises(StorageError, match="Corrupt embedding metadata") as ei:
         await storage.ensure_embeddings_bound()
+    assert ei.value.code is ErrorCode.STORAGE_CORRUPT
     await storage.close()
 
 
@@ -284,8 +288,9 @@ async def test_non_vector_ops_do_not_bind(tmp_path):
 
 
 def test_parse_positive_dim_rejects_zero():
-    with pytest.raises(StorageError, match="Corrupt embedding metadata"):
+    with pytest.raises(StorageError, match="Corrupt embedding metadata") as ei:
         _parse_positive_dim("0")
+    assert ei.value.code is ErrorCode.STORAGE_CORRUPT
 
 
 def test_schema_vec_width_without_float_array():
@@ -326,8 +331,9 @@ async def test_corrupt_schema_vs_meta_raises(tmp_path):
     )
     await storage.close()
     storage = await DuckDBStorage.open(path, StubEmbedder(dim=8, model_id="m8"))
-    with pytest.raises(StorageError, match="Corrupt embedding metadata"):
+    with pytest.raises(StorageError, match="Corrupt embedding metadata") as ei:
         await storage.ensure_embeddings_bound()
+    assert ei.value.code is ErrorCode.STORAGE_CORRUPT
     await storage.close()
 
 
