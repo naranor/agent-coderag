@@ -207,8 +207,9 @@ async def test_legacy_without_meta_dim_mismatch_raises_storage_error(tmp_path):
     with pytest.raises(
         StorageError,
         match=r"Embedding dimension mismatch \(index=384, embedder=8\)\. Run rebuild\.",
-    ):
+    ) as ei:
         await storage.ensure_embeddings_bound()
+    assert ei.value.code is ErrorCode.EMBEDDING_MISMATCH
     await storage.close()
 
 
@@ -254,8 +255,9 @@ async def test_custom_onnx_dim_mismatch_is_storage_error(tmp_path):
     await storage.close()
     custom8 = StubEmbedder(dim=8, model_id=LOCAL_EMBEDDING_MODEL_ID)
     storage = await DuckDBStorage.open(path, custom8, wipe=False)
-    with pytest.raises(StorageError, match="Run rebuild"):
+    with pytest.raises(StorageError, match="Run rebuild") as ei:
         await storage.ensure_embeddings_bound()
+    assert ei.value.code is ErrorCode.EMBEDDING_MISMATCH
     await storage.close()
 
 
