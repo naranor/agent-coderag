@@ -36,6 +36,10 @@ class DiscoveryManager:
         self._providers[language.lower()] = provider
         logger.debug("Registered discovery provider for %s", language)
 
+    def get_provider(self, language: str) -> Optional[IDiscoveryProvider]:
+        """Returns the provider for a language, if registered."""
+        return self._providers.get(language.lower())
+
     async def extract_api(self, library_name: str, language: str) -> str:
         """
         Extracts API for a library using the specified language provider.

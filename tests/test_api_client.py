@@ -85,16 +85,14 @@ async def test_setup_skips_existing_files(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_api_defaults_language_python():
-    manager = MagicMock()
-    manager.discovery.extract_api = AsyncMock(return_value="REPORT")
-    out = await run_api(manager, "pydantic", lang=None)
+    discovery = MagicMock()
+    discovery.extract_api = AsyncMock(return_value="REPORT")
+    out = await run_api(discovery, "pydantic", lang=None)
     assert isinstance(out, ApiReport)
     assert out.language == "python"
     assert out.library == "pydantic"
     assert out.report == "REPORT"
-    manager.discovery.extract_api.assert_awaited_once_with(
-        "pydantic", language="python"
-    )
+    discovery.extract_api.assert_awaited_once_with("pydantic", language="python")
 
 
 @pytest.mark.asyncio

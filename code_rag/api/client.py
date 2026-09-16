@@ -6,9 +6,12 @@ from typing import AsyncIterator, Optional, Union
 
 from code_rag.api.models import ApiReport, SetupResult, SyncResult
 from code_rag.core.constants import DEFAULT_CONNECT_TIMEOUT_SECONDS
+from code_rag.core.exceptions import StorageBusyError, StorageError
 from code_rag.core.interfaces import IEmbedder, IIntelligence, IParser
 from code_rag.core.manager import CodeRAGManager
 from code_rag.core.models import KnowledgeUnit
+from code_rag.discovery.manager import DiscoveryManager
+from code_rag.discovery.providers.java import JavaDiscoveryProvider
 from code_rag.intelligence.distiller import DistillerConfig
 from code_rag.paths import resolve_db_path
 from code_rag.services.config import load_or_update_config
@@ -90,6 +93,21 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
                 await storage.close()
                 self._storage = None
 
+    @asynccontextmanager
+    async def _metadata_ro_connection(self) -> AsyncIterator[DuckDBStorage]:
+        storage = await open_db_connection(
+            self._db_path,
+            None,
+            mode=AccessMode.READ_ONLY,
+            connect_timeout_seconds=self._connect_timeout_seconds,
+        )
+        self._storage = storage
+        try:
+            yield storage
+        finally:
+            await storage.close()
+            self._storage = None
+
     async def close(self) -> None:
         async with self._op_lock:
             if self._storage is not None:
@@ -151,9 +169,33 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
         async with self._with_manager(AccessMode.READ_ONLY) as manager:
             return await run_search(manager, query, limit=limit)
 
+    async def _api_java(
+        self,
+        discovery: DiscoveryManager,
+        provider: JavaDiscoveryProvider,
+        library: str,
+        language: str,
+    ) -> ApiReport:
+        async with self._op_lock:
+            try:
+                async with self._metadata_ro_connection() as storage:
+                    provider.storage = storage
+                    try:
+                        return await run_api(discovery, library, lang=language)
+                    finally:
+                        provider.storage = None
+            except StorageError as exc:
+                if isinstance(exc, StorageBusyError):
+                    raise
+                return await run_api(discovery, library, lang=language)
+
     async def api(self, library: str, *, lang: Optional[str] = None) -> ApiReport:
-        async with self._with_manager(AccessMode.READ_WRITE) as manager:
-            return await run_api(manager, library, lang=lang)
+        language = lang or "python"
+        discovery = DiscoveryManager()
+        provider = discovery.get_provider(language)
+        if isinstance(provider, JavaDiscoveryProvider):
+            return await self._api_java(discovery, provider, library, language)
+        return await run_api(discovery, library, lang=language)
 
     async def rebuild(self) -> SyncResult:
         async with self._with_manager(AccessMode.READ_WRITE, wipe=True) as manager:
