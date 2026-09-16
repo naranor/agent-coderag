@@ -341,11 +341,6 @@ allprojects {
         return [item for batch in batches for item in batch]
 
     async def close(self) -> None:
-        """Releases manager resources."""
+        """Closes storage only. Shared embedder lifetime is owned by CodeRAG."""
         await self.storage.close()
-        if hasattr(self.intelligence, "close"):
-            closer = self.intelligence.close
-            result = closer()
-            if asyncio.iscoroutine(result):
-                await result
         logger.info("CodeRAG manager closed.")

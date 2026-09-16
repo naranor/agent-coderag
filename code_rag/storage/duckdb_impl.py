@@ -333,6 +333,8 @@ class DuckDBStorage(IStorage):
                     f"Embedding dimension mismatch (index={schema_n}, embedder={dim}). Run rebuild.",
                     code=ErrorCode.EMBEDDING_MISMATCH,
                 )
+            if self.mode is AccessMode.READ_ONLY:
+                return
             self.conn.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS unit_embeddings (

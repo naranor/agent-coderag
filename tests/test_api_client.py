@@ -114,46 +114,57 @@ async def test_run_sync_noop_when_no_path_and_not_index_all():
 
 
 @pytest.mark.asyncio
-async def test_config_does_not_create_manager():
-    with patch("code_rag.api.client.create_manager", new=AsyncMock()) as mock_create:
+async def test_config_does_not_create_stack():
+    with patch("code_rag.api.client.create_stack", new=AsyncMock()) as mock_stack:
         rag = CodeRAG()
         with patch(
             "code_rag.api.client.load_or_update_config", return_value=MagicMock()
         ):
             await rag.config()
-        mock_create.assert_not_called()
+        mock_stack.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_setup_does_not_create_manager():
-    with patch("code_rag.api.client.create_manager", new=AsyncMock()) as mock_create:
+async def test_setup_does_not_create_stack():
+    with patch("code_rag.api.client.create_stack", new=AsyncMock()) as mock_stack:
         rag = CodeRAG()
         with patch(
             "code_rag.api.client.run_setup",
             new=AsyncMock(return_value=MagicMock()),
         ):
             await rag.setup()
-        mock_create.assert_not_called()
+        mock_stack.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_sync_noop_without_path_and_index_all_false():
     rag = CodeRAG()
-    with patch("code_rag.api.client.create_manager", new=AsyncMock()) as mock_create:
+    with patch("code_rag.api.client.create_stack", new=AsyncMock()) as mock_stack:
         result = await rag.sync(path=None, index_all=False, force=False)
         assert result.indexed_files == 0
-        mock_create.assert_not_called()
+        mock_stack.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_search_lazy_creates_and_closes_manager():
-    manager = MagicMock()
-    manager.search = AsyncMock(return_value=[])
-    manager.close = AsyncMock()
+async def test_search_closes_storage_then_embedder():
+    embedder = MagicMock()
+    embedder.close = AsyncMock()
+    parser = MagicMock()
+    distiller = MagicMock()
+    storage = MagicMock()
+    storage.close = AsyncMock()
     with patch(
-        "code_rag.api.client.create_manager", new=AsyncMock(return_value=manager)
-    ):
+        "code_rag.api.client.create_stack",
+        new=AsyncMock(return_value=(embedder, parser, distiller)),
+    ), patch(
+        "code_rag.api.client.open_db_connection",
+        new=AsyncMock(return_value=storage),
+    ), patch("code_rag.api.client.build_manager", return_value=MagicMock()), patch(
+        "code_rag.api.client.run_search", new=AsyncMock(return_value=[])
+    ) as mock_search:
         async with CodeRAG() as rag:
             await rag.search("q", limit=3)
-        manager.search.assert_awaited_once_with("q", limit=3)
-        manager.close.assert_awaited()
+        mock_search.assert_awaited_once()
+        assert mock_search.await_args.kwargs["limit"] == 3
+        storage.close.assert_awaited()
+        embedder.close.assert_awaited()

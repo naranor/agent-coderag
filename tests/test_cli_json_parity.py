@@ -6,19 +6,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from code_rag.api.models import ApiReport
 from code_rag.entry import cli
 from code_rag.intelligence.distiller import DistillerConfig
+from tests.fake_coderag import fake_coderag_class
 
 
 @pytest.mark.asyncio
 async def test_sync_json_success_shape(tmp_path):
-    mock_manager = MagicMock()
-    mock_manager.sync_dependencies = AsyncMock()
-    mock_manager.sync_project = AsyncMock(return_value=[])
-    mock_manager.close = AsyncMock()
-    with patch(
-        "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-    ), patch("code_rag.entry.cli.validate_path", return_value=tmp_path):
+    fake_cls, _ = fake_coderag_class()
+    with patch("code_rag.entry.cli.CodeRAG", fake_cls), patch(
+        "code_rag.entry.cli.validate_path", return_value=tmp_path
+    ):
         args = argparse.Namespace(
             db="test.db",
             onnx=None,
@@ -41,12 +40,14 @@ async def test_sync_json_success_shape(tmp_path):
 
 @pytest.mark.asyncio
 async def test_api_json_omits_language():
-    mock_manager = MagicMock()
-    mock_manager.discovery.extract_api = AsyncMock(return_value="REPORT")
-    mock_manager.close = AsyncMock()
-    with patch(
-        "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-    ):
+    fake_cls, _ = fake_coderag_class(
+        api=AsyncMock(
+            return_value=ApiReport(
+                library="pydantic", language="python", report="REPORT"
+            )
+        )
+    )
+    with patch("code_rag.entry.cli.CodeRAG", fake_cls):
         args = argparse.Namespace(
             db="test.db",
             onnx=None,

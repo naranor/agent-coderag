@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from typing import Optional
 
@@ -30,4 +31,4 @@ async def create_embedder(
             api_key=config.embedding_key,
             provider=config.embedding_provider,
         )
-    return LocalOnnxEmbedder(model_path=onnx_path)
+    return await asyncio.to_thread(LocalOnnxEmbedder, model_path=onnx_path)

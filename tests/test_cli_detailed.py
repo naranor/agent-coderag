@@ -8,6 +8,8 @@ from pathlib import Path
 
 from code_rag.entry import cli
 from code_rag.core.exceptions import CodeRAGError
+from code_rag.api.models import ApiReport
+from tests.fake_coderag import fake_coderag_class
 
 
 class TestCLIDetailed:
@@ -100,14 +102,10 @@ class TestCLIDetailed:
 
     @pytest.mark.asyncio
     async def test_sync_cmd_json_success(self, tmp_path):
-        mock_manager = MagicMock()
-        mock_manager.sync_dependencies = AsyncMock()
-        mock_manager.sync_project = AsyncMock(return_value=[])
-        mock_manager.close = AsyncMock()
-
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ), patch("code_rag.entry.cli.validate_path", return_value=tmp_path):
+        fake_cls, _ = fake_coderag_class()
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls), patch(
+            "code_rag.entry.cli.validate_path", return_value=tmp_path
+        ):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -128,15 +126,10 @@ class TestCLIDetailed:
 
     @pytest.mark.asyncio
     async def test_sync_cmd_json_error(self, tmp_path):
-        mock_manager = MagicMock()
-        mock_manager.sync_dependencies = AsyncMock(
-            side_effect=Exception("Critical Failure")
+        fake_cls, instances = fake_coderag_class(
+            sync=AsyncMock(side_effect=Exception("Critical Failure"))
         )
-        mock_manager.close = AsyncMock()
-
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ):
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -157,18 +150,14 @@ class TestCLIDetailed:
                 assert "Critical Failure" in data["message"]
             finally:
                 sys.stdout = old_stdout
+            instances[0].close.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_sync_cmd_human_error(self):
-        mock_manager = MagicMock()
-        mock_manager.sync_dependencies = AsyncMock(
-            side_effect=Exception("Critical Failure")
+        fake_cls, _ = fake_coderag_class(
+            sync=AsyncMock(side_effect=Exception("Critical Failure"))
         )
-        mock_manager.close = AsyncMock()
-
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ):
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -190,14 +179,10 @@ class TestCLIDetailed:
 
     @pytest.mark.asyncio
     async def test_rebuild_cmd_json_error(self):
-        mock_manager = MagicMock()
-        mock_manager.close = AsyncMock()
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ), patch(
-            "code_rag.entry.cli.sync_service.run_rebuild",
-            new=AsyncMock(side_effect=Exception("Rebuild boom")),
-        ):
+        fake_cls, instances = fake_coderag_class(
+            rebuild=AsyncMock(side_effect=Exception("Rebuild boom"))
+        )
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -216,18 +201,14 @@ class TestCLIDetailed:
                 assert "Rebuild boom" in data["message"]
             finally:
                 sys.stdout = old_stdout
-            mock_manager.close.assert_awaited()
+            instances[0].close.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_rebuild_cmd_human_error(self):
-        mock_manager = MagicMock()
-        mock_manager.close = AsyncMock()
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ), patch(
-            "code_rag.entry.cli.sync_service.run_rebuild",
-            new=AsyncMock(side_effect=Exception("Rebuild boom")),
-        ):
+        fake_cls, _ = fake_coderag_class(
+            rebuild=AsyncMock(side_effect=Exception("Rebuild boom"))
+        )
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -248,13 +229,14 @@ class TestCLIDetailed:
     @pytest.mark.asyncio
     async def test_api_cmd_logic(self):
         """Test api command logic."""
-        mock_manager = MagicMock()
-        mock_manager.discovery.extract_api = AsyncMock(return_value="API Report")
-        mock_manager.close = AsyncMock()
-
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ):
+        fake_cls, instances = fake_coderag_class(
+            api=AsyncMock(
+                return_value=ApiReport(
+                    library="testlib", language="python", report="API Report"
+                )
+            )
+        )
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -264,24 +246,14 @@ class TestCLIDetailed:
                 lang="python",
             )
             await cli.api_cmd(args)
-            # Correct assertion with keyword argument
-            mock_manager.discovery.extract_api.assert_called_with(
-                "testlib", language="python"
-            )
+            instances[0].api.assert_awaited_once_with("testlib", lang="python")
 
     @pytest.mark.asyncio
     async def test_api_cmd_json_error(self):
-        mock_manager = MagicMock()
-        mock_manager.discovery.extract_api = AsyncMock(
-            side_effect=Exception("api down")
+        fake_cls, _ = fake_coderag_class(
+            api=AsyncMock(side_effect=Exception("api down"))
         )
-        mock_manager.close = AsyncMock()
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ), patch(
-            "code_rag.entry.cli.run_api",
-            new=AsyncMock(side_effect=Exception("api down")),
-        ):
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -302,14 +274,10 @@ class TestCLIDetailed:
 
     @pytest.mark.asyncio
     async def test_api_cmd_human_error(self):
-        mock_manager = MagicMock()
-        mock_manager.close = AsyncMock()
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ), patch(
-            "code_rag.entry.cli.run_api",
-            new=AsyncMock(side_effect=Exception("api down")),
-        ):
+        fake_cls, _ = fake_coderag_class(
+            api=AsyncMock(side_effect=Exception("api down"))
+        )
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,

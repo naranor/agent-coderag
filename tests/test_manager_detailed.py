@@ -202,4 +202,4 @@ class TestManagerDetailed:
         await manager.close()
 
         manager.storage.close.assert_called_once()
-        manager.intelligence.close.assert_awaited_once()
+        manager.intelligence.close.assert_not_called()

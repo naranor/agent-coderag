@@ -7,6 +7,7 @@ import pytest
 from code_rag.api.models import SyncFileError, SyncResult
 from code_rag.entry import cli
 from code_rag.services.sync import run_rebuild, run_sync
+from tests.fake_coderag import fake_coderag_class
 
 
 def _manager_mock(failures=None):
@@ -136,16 +137,8 @@ async def test_sync_cmd_json_partial_failure_document(capsys):
             SyncFileError(file="src/b.py", message="Embedding count mismatch"),
         ],
     )
-    with (
-        patch(
-            "code_rag.entry.cli.get_manager",
-            new=AsyncMock(return_value=_manager_mock()),
-        ),
-        patch(
-            "code_rag.entry.cli.sync_service.run_sync",
-            new=AsyncMock(return_value=result),
-        ),
-    ):
+    fake_cls, _ = fake_coderag_class(sync=AsyncMock(return_value=result))
+    with patch("code_rag.entry.cli.CodeRAG", fake_cls):
         with pytest.raises(SystemExit) as exc:
             await cli.sync_cmd(_cli_args(json_mode=True))
     assert exc.value.code == 1
@@ -168,16 +161,8 @@ async def test_sync_cmd_human_partial_failure_stderr(capsys):
         indexed_files=1,
         errors=[SyncFileError(file="a.py", message="timeout")],
     )
-    with (
-        patch(
-            "code_rag.entry.cli.get_manager",
-            new=AsyncMock(return_value=_manager_mock()),
-        ),
-        patch(
-            "code_rag.entry.cli.sync_service.run_sync",
-            new=AsyncMock(return_value=result),
-        ),
-    ):
+    fake_cls, _ = fake_coderag_class(sync=AsyncMock(return_value=result))
+    with patch("code_rag.entry.cli.CodeRAG", fake_cls):
         with pytest.raises(SystemExit) as exc:
             await cli.sync_cmd(_cli_args(json_mode=False))
     assert exc.value.code == 1
@@ -193,16 +178,8 @@ async def test_rebuild_cmd_json_partial_failure(capsys):
         indexed_files=1,
         errors=[SyncFileError(file="a.py", message="boom")],
     )
-    with (
-        patch(
-            "code_rag.entry.cli.get_manager",
-            new=AsyncMock(return_value=_manager_mock()),
-        ),
-        patch(
-            "code_rag.entry.cli.sync_service.run_rebuild",
-            new=AsyncMock(return_value=result),
-        ),
-    ):
+    fake_cls, _ = fake_coderag_class(rebuild=AsyncMock(return_value=result))
+    with patch("code_rag.entry.cli.CodeRAG", fake_cls):
         args = argparse.Namespace(
             db="test.db",
             onnx=None,
@@ -227,16 +204,8 @@ async def test_rebuild_cmd_human_partial_failure(capsys):
         indexed_files=1,
         errors=[SyncFileError(file="a.py", message="boom")],
     )
-    with (
-        patch(
-            "code_rag.entry.cli.get_manager",
-            new=AsyncMock(return_value=_manager_mock()),
-        ),
-        patch(
-            "code_rag.entry.cli.sync_service.run_rebuild",
-            new=AsyncMock(return_value=result),
-        ),
-    ):
+    fake_cls, _ = fake_coderag_class(rebuild=AsyncMock(return_value=result))
+    with patch("code_rag.entry.cli.CodeRAG", fake_cls):
         args = argparse.Namespace(
             db="test.db",
             onnx=None,

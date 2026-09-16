@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from code_rag.core.exceptions import StorageError
-from code_rag.entry import cli
 from code_rag.intelligence.distiller import DistillerConfig
 from code_rag.services.factory import create_manager
+from code_rag.storage.db_connection import AccessMode
 
 
 @pytest.mark.asyncio
@@ -20,7 +20,7 @@ async def test_create_manager_opens_storage_with_wipe():
         "code_rag.services.factory.create_embedder",
         new=AsyncMock(return_value=embedder),
     ) as mock_ce, patch(
-        "code_rag.services.factory.DuckDBStorage.open",
+        "code_rag.services.factory.open_db_connection",
         new=AsyncMock(return_value=storage),
     ) as mock_open, patch("code_rag.services.factory.Distiller"), patch(
         "code_rag.services.factory.MultiParser"
@@ -33,21 +33,9 @@ async def test_create_manager_opens_storage_with_wipe():
         )
     assert out is manager
     mock_ce.assert_awaited_once()
-    mock_open.assert_awaited_once_with("test.db", embedder, wipe=True)
-
-
-@pytest.mark.asyncio
-async def test_get_manager_delegates_and_does_not_construct_cli_embedder():
-    sentinel = MagicMock()
-    with patch(
-        "code_rag.entry.cli.create_manager", new=AsyncMock(return_value=sentinel)
-    ) as mock_cm, patch.object(cli, "Embedder") as mock_embedder:
-        out = await cli.get_manager("db.db", onnx_path="x.onnx", wipe=True)
-    assert out is sentinel
-    mock_cm.assert_awaited_once_with(
-        "db.db", "x.onnx", allow_build_execution=False, wipe=True
-    )
-    mock_embedder.assert_not_called()
+    mock_open.assert_awaited_once()
+    assert mock_open.await_args.kwargs["mode"] is AccessMode.READ_WRITE
+    assert mock_open.await_args.kwargs["wipe"] is True
 
 
 @pytest.mark.asyncio
@@ -60,7 +48,7 @@ async def test_create_manager_selects_remote_via_same_rule():
         "code_rag.services.factory.create_embedder",
         new=AsyncMock(return_value=remote),
     ) as mock_ce, patch(
-        "code_rag.services.factory.DuckDBStorage.open",
+        "code_rag.services.factory.open_db_connection",
         new=AsyncMock(return_value=MagicMock()),
     ), patch("code_rag.services.factory.Distiller"), patch(
         "code_rag.services.factory.MultiParser"
@@ -83,7 +71,7 @@ async def test_create_manager_closes_embedder_when_open_fails():
         "code_rag.services.factory.create_embedder",
         new=AsyncMock(return_value=embedder),
     ), patch(
-        "code_rag.services.factory.DuckDBStorage.open",
+        "code_rag.services.factory.open_db_connection",
         new=AsyncMock(side_effect=StorageError("open failed")),
     ), patch("code_rag.services.factory.Distiller"), patch(
         "code_rag.services.factory.MultiParser"

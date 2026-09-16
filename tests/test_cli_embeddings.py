@@ -2,14 +2,14 @@ import argparse
 import json
 import sys
 from io import StringIO
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from code_rag.api.models import SyncResult
 from code_rag.core.exceptions import IntelligenceError
 from code_rag.entry import cli
 from code_rag.intelligence.distiller import DistillerConfig
+from tests.fake_coderag import fake_coderag_class
 
 
 DISTILLER_KEYS = ("model", "api_base", "api_key", "provider", "temperature")
@@ -135,18 +135,9 @@ def test_rebuild_cmd_is_not_sync_cmd_alias():
 
 
 @pytest.mark.asyncio
-async def test_rebuild_cmd_calls_get_manager_wipe_true():
-    mock_manager = MagicMock()
-    mock_manager.close = AsyncMock()
-    with (
-        patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ) as mock_gm,
-        patch(
-            "code_rag.entry.cli.sync_service.run_rebuild",
-            new=AsyncMock(return_value=SyncResult(status="success", indexed_files=1)),
-        ) as mock_rb,
-    ):
+async def test_rebuild_cmd_calls_facade_rebuild():
+    fake_cls, instances = fake_coderag_class()
+    with patch("code_rag.entry.cli.CodeRAG", fake_cls):
         args = argparse.Namespace(
             db="test.db",
             onnx=None,
@@ -161,10 +152,9 @@ async def test_rebuild_cmd_calls_get_manager_wipe_true():
             payload = json.loads(sys.stdout.getvalue())
         finally:
             sys.stdout = old
-    assert mock_gm.await_args.kwargs.get("wipe") is True
-    mock_rb.assert_awaited_once()
+    instances[0].rebuild.assert_awaited_once()
     assert payload == {"status": "success", "indexed_files": "auto"}
-    mock_manager.close.assert_awaited()
+    instances[0].close.assert_awaited()
 
 
 def test_clear_then_set_on_same_invocation():
