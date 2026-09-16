@@ -12,5 +12,6 @@ We take the security of CodeRAG seriously. If you find a security vulnerability,
 *   CodeRAG saves its configuration in a global cache folder (`~/.cache/agent-coderag/config.json`). This file is readable by your user. Ensure your system is secure if you store sensitive keys there.
 
 ### Local Database
-*   The `.code_rag.db` file contains embeddings and metadata of your code. By default, it is stored in your project directory.
-*   **Avoid sharing this file** if your source code is private, as embeddings can sometimes be used to reconstruct parts of the original text.
+*   The DuckDB index file (`code_rag.db` or `.coderag.db`) contains embeddings and metadata of your code. When `db` is omitted, CodeRAG resolves the path in order: `./code_rag.db` (cwd) if present, else `{project_root}/code_rag.db`, else `{project_root}/.coderag.db` (created on first write). Legacy projects may still use `code_rag.db`; new projects should use `.coderag.db`.
+*   DuckDB may create sidecar files (for example `.wal`) next to the database during indexing.
+*   **Avoid sharing the index or its sidecars** if your source code is private, as embeddings can sometimes be used to reconstruct parts of the original text.

@@ -1,5 +1,24 @@
 ## [Unreleased]
 
+### Breaking
+- **Pin before upgrading:** 1.4.0 changes library storage semantics. Use `agent-coderag<1.4` until you migrate callers and scripts.
+- **Default `db` is unset:** `CodeRAG()` and CLI omit `--db` by default (`None`), not a hard-coded `code_rag.db`. Resolution order: cwd `code_rag.db` if exists → `{root}/code_rag.db` if exists → `{root}/.coderag.db` (create on RW ops). Use `default_db_path(root)` to preview.
+- **New create default:** fresh projects get `{root}/.coderag.db` unless a legacy `code_rag.db` is found. Relative explicit `db=` resolves against process cwd, not `root`.
+- **Ephemeral DuckDB per op:** the index file is not held open between `search`/`sync`/`api` calls; embedder/parser/distiller stay warm until `close()`.
+- **Read-only search:** `search` opens read-only and does not create an empty database when the file is missing.
+- **`api()` lazy storage:** API discovery no longer implies a warm DB/embedder; DuckDB opens read-only only when a provider needs it (e.g. Java JAR cache).
+- **Serialized in-process ops:** overlapping tasks on one `CodeRAG` instance are queued (no parallel DB access in-process).
+- **Stable storage errors:** file-lock timeouts surface as `StorageBusyError` with `ErrorCode.STORAGE_BUSY` instead of raw `duckdb` exceptions. `CodeRAGError.code` uses public `ErrorCode` values (`STORAGE_CORRUPT`, `EMBEDDING_MISMATCH`, …).
+
+### Changed
+- Added `connect_timeout_seconds` (default `5`; CLI `--connect-timeout`). `0` disables busy-wait retries.
+- Exported `default_db_path`, `ErrorCode`, and `StorageBusyError` from the public package.
+- Documented DuckDB WAL sidecars beside the index file.
+
+### Fixed
+- Cross-process lock contention now retries until timeout, then fails with `STORAGE_BUSY`.
+- Corrupt metadata and embedding-dimension mismatches map to `STORAGE_CORRUPT` / `EMBEDDING_MISMATCH`.
+
 ## [1.3.5] - 2026-09-12
 
 ### Fixed

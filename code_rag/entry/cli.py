@@ -280,14 +280,24 @@ async def rebuild_cmd(args):
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CodeRAG: API Knowledge Bridge.")
-    parser.add_argument("--db", default=None, help="Path to DuckDB database file.")
+    parser.add_argument(
+        "--db",
+        default=None,
+        help=(
+            "DuckDB index file. Default: resolve legacy code_rag.db in cwd/root, "
+            "else use .coderag.db under project root."
+        ),
+    )
     parser.add_argument("--onnx", help="Path to local ONNX model file.")
     parser.add_argument(
         "--connect-timeout",
         dest="connect_timeout",
         type=float,
         default=DEFAULT_CONNECT_TIMEOUT_SECONDS,
-        help="Seconds to wait for a DuckDB lock before failing.",
+        help=(
+            "Seconds to wait for a DuckDB file lock before StorageBusyError "
+            f"(default {DEFAULT_CONNECT_TIMEOUT_SECONDS:g}). 0 = no retry."
+        ),
     )
     parser.add_argument(
         "--verbose", action="store_true", help="Enable verbose logging."

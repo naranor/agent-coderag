@@ -117,16 +117,36 @@ agent-coderag api fmt
 
 ## Library Usage
 
+> **1.4.0 migration:** Storage lifetime and default DB resolution changed. Pin `agent-coderag<1.4` until you adapt (see [Database & lifetime](#database--lifetime)).
+
 ```python
-from code_rag import CodeRAG
+from pathlib import Path
+
+from code_rag import CodeRAG, default_db_path
 
 async def main():
-    async with CodeRAG(db="code_rag.db") as rag:
+    root = Path(".")
+    print(default_db_path(root))  # resolved path before first sync
+
+    # db=None (default): legacy code_rag.db in cwd/root, else root/.coderag.db
+    async with CodeRAG(root=root) as rag:
         await rag.setup()
         await rag.sync(index_all=True)
         hits = await rag.search("authentication middleware", limit=5)
+        # Opens the DB only when a provider needs it (e.g. Java JAR cache).
         report = await rag.api("pydantic", lang="python")
 ```
+
+### Database & lifetime
+
+- **Default path (`db=None`):** resolution order is (1) `./code_rag.db` if it exists, (2) else `{root}/code_rag.db` if it exists, (3) else `{root}/.coderag.db` (created on first `sync`/`rebuild`). Use `default_db_path(root)` to preview. New projects: prefer `.coderag.db` (step 3) or set `db=` explicitly.
+- **Explicit path:** `CodeRAG(db=...)` / `agent-coderag --db ...`. Path is a **file**, not a directory. Relative paths resolve against **process cwd**, not `root`.
+- **Sidecars:** DuckDB may write WAL sidecars (e.g. `.coderag.db.wal`) beside the index during writes; locks should not persist after an operation finishes.
+- **Connect timeout:** `connect_timeout_seconds=5` (CLI `--connect-timeout`) waits on file locks, then raises `StorageBusyError` (`ErrorCode.STORAGE_BUSY`). Pass `0` for a single attempt.
+- **Read-only search:** `search` (and `api` when storage is needed) opens read-only. A missing index file is an error — use `sync`/`rebuild` to create it.
+- **Lifetime:** embedder/parser/distiller stay warm; DuckDB opens per operation and closes afterward. One `CodeRAG` instance serializes overlapping ops.
+- **`api()` without DB:** providers that do not need the index (e.g. Python) skip DuckDB entirely; Java uses a short read-only open for JAR cache lookup.
+- **Errors:** catch `CodeRAGError` and inspect `.code` — `STORAGE_BUSY`, `STORAGE_CORRUPT`, `EMBEDDING_MISMATCH` (`from code_rag import ErrorCode`).
 
 ---
 
