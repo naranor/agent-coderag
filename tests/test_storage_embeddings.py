@@ -52,6 +52,8 @@ async def test_open_does_not_probe_or_create_embeddings(tmp_path):
     ).fetchone()
     assert row is None
     await storage.close()
+    assert stub.closed is False
+    await stub.close()
     assert stub.closed is True
 
 

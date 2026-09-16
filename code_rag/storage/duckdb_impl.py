@@ -3,6 +3,8 @@ import logging
 import asyncio
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from enum import Enum
 import duckdb
 from typing import List, Optional, Dict
 from ..core.interfaces import IStorage, IEmbedder
@@ -12,9 +14,18 @@ from ..core.constants import (
     EMBEDDING_PROBE_TEXT,
     LOCAL_EMBEDDING_MODEL_ID,
 )
+from ..core.error_codes import ErrorCode
 from ..core.exceptions import StorageError, IntelligenceError
 
 logger = logging.getLogger(__name__)
+
+
+class AccessMode(str, Enum):
+    """Whether a connection may write. Not part of the public package API."""
+
+    READ_ONLY = "read_only"
+    READ_WRITE = "read_write"
+
 
 META_DIM_KEY = "embedding_dim"
 META_MODEL_KEY = "embedding_model"
@@ -42,10 +53,14 @@ def float_vec_sql_type(dim: int) -> str:
 
 def _parse_positive_dim(raw: str) -> int:
     if raw is None or not str(raw).strip().isdigit():
-        raise StorageError("Corrupt embedding metadata. Run rebuild.")
+        raise StorageError(
+            "Corrupt embedding metadata. Run rebuild.", code=ErrorCode.STORAGE_CORRUPT
+        )
     value = int(str(raw).strip())
     if value < 1:
-        raise StorageError("Corrupt embedding metadata. Run rebuild.")
+        raise StorageError(
+            "Corrupt embedding metadata. Run rebuild.", code=ErrorCode.STORAGE_CORRUPT
+        )
     return value
 
 
@@ -103,7 +118,8 @@ def _bind_embedder_to_target(embedder: IEmbedder, target: int) -> int:
         already = None
     if already is not None and already != target:
         raise StorageError(
-            f"Embedding dimension mismatch (index={target}, embedder={already}). Run rebuild."
+            f"Embedding dimension mismatch (index={target}, embedder={already}). Run rebuild.",
+            code=ErrorCode.EMBEDDING_MISMATCH,
         )
     embedder.bind_dimension(target)
     return target
@@ -118,7 +134,10 @@ async def bind_embedder_dimension(conn, embedder: IEmbedder, *, wiped: bool) -> 
     if table_exists and meta_dim_raw is not None and meta_model is not None:
         meta_n = _parse_positive_dim(meta_dim_raw)
         if schema_n is not None and schema_n != meta_n:
-            raise StorageError("Corrupt embedding metadata. Run rebuild.")
+            raise StorageError(
+                "Corrupt embedding metadata. Run rebuild.",
+                code=ErrorCode.STORAGE_CORRUPT,
+            )
         if meta_model == embedder.model_id:
             target = schema_n if schema_n is not None else meta_n
             return _bind_embedder_to_target(embedder, target)
@@ -176,22 +195,48 @@ def _ensure_base_tables(conn) -> None:
     )
 
 
+def apply_rw_schema(conn, *, wipe: bool) -> None:
+    """Create base tables and optionally wipe embeddings. Read-write only."""
+    _ensure_base_tables(conn)
+    if wipe:
+        conn.execute("DROP TABLE IF EXISTS unit_embeddings")
+        conn.execute(
+            "DELETE FROM index_meta WHERE key IN (?, ?)",
+            [META_DIM_KEY, META_MODEL_KEY],
+        )
+
+
 class DuckDBStorage(IStorage):
     """
     DuckDB-based storage with Vector Similarity Search (VSS) capabilities.
     """
 
-    def __init__(self, conn, embedder: IEmbedder, *, db_path: str):
+    def __init__(  # pylint: disable=too-many-arguments
+        self,
+        conn,
+        embedder: Optional[IEmbedder],
+        *,
+        db_path: str,
+        mode: AccessMode = AccessMode.READ_WRITE,
+        executor: Optional[ThreadPoolExecutor] = None,
+    ):
         self.db_path = db_path
         self._embedder = embedder
         self.conn = conn
+        self.mode = mode
+        self._executor = (
+            executor if executor is not None else ThreadPoolExecutor(max_workers=1)
+        )
         self._embedding_model_dirty = False
         self._embeddings_bound = False
         self._pending_wipe = False
+        self._closed = False
         self._conn_lock = asyncio.Lock()
 
     @property
     def embedder(self) -> IEmbedder:
+        if self._embedder is None:
+            raise StorageError("embedder is required for this operation")
         return self._embedder
 
     @property
@@ -199,21 +244,25 @@ class DuckDBStorage(IStorage):
         return self._embedding_model_dirty
 
     def _refresh_dirty_from_meta(self) -> None:
+        if self._embedder is None:
+            self._embedding_model_dirty = False
+            return
         if self._pending_wipe or not _table_exists(self.conn, "unit_embeddings"):
             self._embedding_model_dirty = False
             return
         meta_model = _meta_get(self.conn, META_MODEL_KEY)
         if meta_model is None:
             self._embedding_model_dirty = (
-                self.embedder.model_id != LOCAL_EMBEDDING_MODEL_ID
+                self._embedder.model_id != LOCAL_EMBEDDING_MODEL_ID
             )
             return
-        self._embedding_model_dirty = meta_model != self.embedder.model_id
+        self._embedding_model_dirty = meta_model != self._embedder.model_id
 
     async def _with_conn(self, fn):
-        """Run DuckDB work serially; a single connection is not thread-safe."""
+        """Run DuckDB work serially, on this connection's dedicated thread."""
+        loop = asyncio.get_running_loop()
         async with self._conn_lock:
-            return await asyncio.to_thread(fn)
+            return await loop.run_in_executor(self._executor, fn)
 
     async def ensure_embeddings_bound(self) -> None:
         if self._embeddings_bound:
@@ -227,7 +276,7 @@ class DuckDBStorage(IStorage):
 
     async def _bind_embeddings(self) -> None:
         dim = await bind_embedder_dimension(
-            self.conn, self._embedder, wiped=self._pending_wipe
+            self.conn, self.embedder, wiped=self._pending_wipe
         )
         schema_n = (
             _schema_vec_width(self.conn)
@@ -237,7 +286,8 @@ class DuckDBStorage(IStorage):
         meta_model = _meta_get(self.conn, META_MODEL_KEY)
         if schema_n is not None and schema_n != dim:
             raise StorageError(
-                f"Embedding dimension mismatch (index={schema_n}, embedder={dim}). Run rebuild."
+                f"Embedding dimension mismatch (index={schema_n}, embedder={dim}). Run rebuild.",
+                code=ErrorCode.EMBEDDING_MISMATCH,
             )
         self.conn.execute(
             f"""
@@ -249,30 +299,39 @@ class DuckDBStorage(IStorage):
         )
         _meta_set(self.conn, META_DIM_KEY, str(dim))
         if meta_model is None:
-            _meta_set(self.conn, META_MODEL_KEY, self._embedder.model_id)
+            _meta_set(self.conn, META_MODEL_KEY, self.embedder.model_id)
 
     @classmethod
-    async def open(cls, path: str, embedder: IEmbedder, *, wipe: bool = False):
+    async def open(
+        cls,
+        path: str,
+        embedder: Optional[IEmbedder],
+        *,
+        wipe: bool = False,
+        mode: AccessMode = AccessMode.READ_WRITE,
+    ):
         if embedder is None:
             raise StorageError("embedder is required")
-        conn = duckdb.connect(path)
+        executor = ThreadPoolExecutor(max_workers=1)
+        loop = asyncio.get_running_loop()
+        read_only = mode is AccessMode.READ_ONLY
+        conn = await loop.run_in_executor(
+            executor, lambda: duckdb.connect(path, read_only=read_only)
+        )
         try:
-            _ensure_base_tables(conn)
-            if wipe:
-                conn.execute("DROP TABLE IF EXISTS unit_embeddings")
-                conn.execute(
-                    "DELETE FROM index_meta WHERE key IN (?, ?)",
-                    [META_DIM_KEY, META_MODEL_KEY],
+            if not read_only:
+                await loop.run_in_executor(
+                    executor, lambda: apply_rw_schema(conn, wipe=wipe)
                 )
-            storage = cls(conn, embedder, db_path=path)
-            storage._pending_wipe = wipe
-            storage._refresh_dirty_from_meta()
+            storage = cls(conn, embedder, db_path=path, mode=mode, executor=executor)
+            finalize_rw_open(storage, wipe=wipe)
             return storage
         except Exception:
             try:
                 conn.close()
             except Exception:  # nosec B110
                 pass
+            executor.shutdown(wait=False)
             raise
 
     async def set_dependency_path(self, lib_name: str, path: str) -> None:
@@ -468,11 +527,13 @@ class DuckDBStorage(IStorage):
         logger.debug("Cleaned up stale units for %s", file_path)
 
     async def close(self) -> None:
-        if self.embedder is not None:
-            await self.embedder.close()
+        if self._closed:
+            return
+        self._closed = True
         if self.conn:
             await self._with_conn(self.conn.close)
             logger.info("Storage connection closed.")
+        await asyncio.to_thread(self._executor.shutdown, wait=True)
 
     def _map_row_to_unit(self, row) -> KnowledgeUnit:
         data = dict(zip(UNIT_COLUMNS, row))
@@ -488,3 +549,9 @@ class DuckDBStorage(IStorage):
             tags=data["tags"] if data["tags"] else [],
             metadata=json.loads(data["metadata"]) if data["metadata"] else {},
         )
+
+
+def finalize_rw_open(storage: DuckDBStorage, *, wipe: bool) -> None:
+    """Record the pending-wipe flag and refresh dirty state after RW open."""
+    storage._pending_wipe = wipe  # pylint: disable=protected-access
+    storage._refresh_dirty_from_meta()  # pylint: disable=protected-access
