@@ -103,7 +103,7 @@ async def open_db_connection(
             await loop.run_in_executor(
                 executor, lambda: apply_rw_schema(conn, wipe=wipe)
             )
-            await finalize_rw_open(storage, wipe=wipe)
+        await finalize_rw_open(storage, wipe=wipe)
         return storage
     except Exception:
         try:

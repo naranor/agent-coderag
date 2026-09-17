@@ -1,3 +1,4 @@
+import hashlib
 from unittest.mock import patch
 
 import duckdb
@@ -7,6 +8,7 @@ from code_rag.core.constants import EMBEDDING_PROBE_TEXT, LOCAL_EMBEDDING_MODEL_
 from code_rag.core.error_codes import ErrorCode
 from code_rag.core.exceptions import IntelligenceError, StorageError
 from code_rag.core.models import KnowledgeUnit, UnitKind
+from code_rag.storage.db_connection import AccessMode, open_db_connection
 from code_rag.storage.duckdb_impl import (
     DuckDBStorage,
     _meta_get,
@@ -358,6 +360,43 @@ async def test_legacy_incomplete_meta_probes_remote(tmp_path):
     assert stub.aembed_calls[0] == [EMBEDDING_PROBE_TEXT]
     assert stub.dimension == 384
     await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_ro_open_incomplete_meta_does_not_write(tmp_path):
+    path = tmp_path / "legacy_ro.db"
+    conn = duckdb.connect(str(path))
+    conn.execute("INSTALL vss;")
+    conn.execute("LOAD vss;")
+    conn.execute(
+        "CREATE TABLE units (id VARCHAR PRIMARY KEY, kind VARCHAR, name VARCHAR, path VARCHAR, signature VARCHAR, docstring VARCHAR, summary VARCHAR, code_hash VARCHAR, tags VARCHAR[], metadata JSON)"
+    )
+    conn.execute(
+        "CREATE TABLE unit_embeddings (id VARCHAR PRIMARY KEY, vec FLOAT[384])"
+    )
+    conn.execute("CREATE TABLE index_meta (key VARCHAR PRIMARY KEY, value VARCHAR)")
+    conn.execute(
+        "CREATE TABLE relations (from_id VARCHAR, to_id VARCHAR, type VARCHAR, PRIMARY KEY (from_id, to_id, type))"
+    )
+    conn.execute(
+        "INSERT INTO units VALUES ('u1', 'function', 'u1', 'p.py', '', '', 's', 'h', [], '{}')"
+    )
+    conn.execute("INSERT INTO unit_embeddings VALUES ('u1', ?)", [[0.0] * 384])
+    conn.close()
+    digest_before = hashlib.sha256(path.read_bytes()).hexdigest()
+    stub = UnboundStubEmbedder(probe_dim=384, model_id="remote-384")
+    storage = await open_db_connection(
+        path, stub, mode=AccessMode.READ_ONLY, connect_timeout_seconds=0
+    )
+    try:
+        assert storage.embedding_model_dirty is True
+        hits = await storage.search_units("q")
+        assert hits[0].id == "u1"
+        meta_rows = storage.conn.execute("SELECT key FROM index_meta").fetchall()
+        assert meta_rows == []
+    finally:
+        await storage.close()
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest_before
 
 
 @pytest.mark.asyncio

@@ -139,12 +139,14 @@ async def bind_embedder_dimension(
     *,
     wiped: bool,
     executor: Optional[ThreadPoolExecutor] = None,
+    read_only: bool = False,
 ) -> int:
     """Determine/bind the embedder's vector dimension against index metadata.
 
     All ``conn`` reads/writes are offloaded to ``executor`` when provided
     (the connection's dedicated thread); only ``embedder.aembed`` awaits
     (via ``_probe_or_bind_dimension``) run on the event loop.
+    Incomplete-meta inference writes ``index_meta`` only when not ``read_only``.
     """
 
     def _read_state():
@@ -177,7 +179,8 @@ async def bind_embedder_dimension(
             _meta_set(conn, META_DIM_KEY, str(inferred))
             _meta_set(conn, META_MODEL_KEY, LOCAL_EMBEDDING_MODEL_ID)
 
-        await _offload(_write_inferred, executor)
+        if not read_only:
+            await _offload(_write_inferred, executor)
         if embedder.model_id == LOCAL_EMBEDDING_MODEL_ID:
             return _bind_embedder_to_target(embedder, inferred)
         return await _probe_or_bind_dimension(embedder)
@@ -318,6 +321,7 @@ class DuckDBStorage(IStorage):
             self.embedder,
             wiped=self._pending_wipe,
             executor=self._executor,
+            read_only=self.mode is AccessMode.READ_ONLY,
         )
         embedder_model_id = self.embedder.model_id
 
@@ -602,7 +606,7 @@ class DuckDBStorage(IStorage):
 
 
 async def finalize_rw_open(storage: DuckDBStorage, *, wipe: bool) -> None:
-    """Record the pending-wipe flag and refresh dirty state after RW open."""
+    """Record the pending-wipe flag and refresh dirty state after open."""
     storage._pending_wipe = wipe  # pylint: disable=protected-access
     # pylint: disable-next=protected-access
     await storage._run_on_executor(storage._refresh_dirty_from_meta)
