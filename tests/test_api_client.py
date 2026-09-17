@@ -7,7 +7,8 @@ from code_rag.api.models import ApiReport, SetupResult, SyncResult
 from code_rag.services.config import load_or_update_config
 from code_rag.services.discovery_api import run_api
 from code_rag.services.setup import run_setup
-from code_rag.services.sync import run_sync
+from code_rag.services.indexing import IndexStack
+from code_rag.services.sync import SyncOptions, run_sync
 
 
 def test_public_imports():
@@ -104,13 +105,13 @@ async def test_run_sync_noop_when_no_path_and_not_index_all():
         "code_rag.services.sync.sync_project", new=AsyncMock()
     ) as mock_sp, patch("code_rag.services.sync.sync_dependencies", new=AsyncMock()):
         result = await run_sync(
-            storage,
-            parser,
-            intel,
-            root=Path("."),
-            path=None,
-            index_all=False,
-            force=False,
+            IndexStack(storage, parser, intel),
+            SyncOptions(
+                root=Path("."),
+                path=None,
+                index_all=False,
+                force=False,
+            ),
         )
     assert isinstance(result, SyncResult)
     assert result.status == "success"

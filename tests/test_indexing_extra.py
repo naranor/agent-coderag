@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from code_rag.services.dependencies import _sync_gradle, _sync_maven
-from code_rag.services.indexing import sync_file, sync_project
+from code_rag.services.indexing import IndexStack, sync_file, sync_project
 from tests.embedder_stubs import StubEmbedder
 
 
@@ -75,7 +75,9 @@ class TestIndexingExtra:
         """Test sync_file handles parser exceptions."""
         mock_parser.distill_file.side_effect = Exception("Parser error")
         with pytest.raises(Exception):
-            await sync_file(mock_storage, mock_parser, mock_intelligence, "broken.py")
+            await sync_file(
+                IndexStack(mock_storage, mock_parser, mock_intelligence), "broken.py"
+            )
 
     @pytest.mark.asyncio
     async def test_sync_project_worker_exception(
@@ -90,7 +92,8 @@ class TestIndexingExtra:
 
         mock_parser.distill_file.side_effect = distill
         failures = await sync_project(
-            mock_storage, mock_parser, mock_intelligence, ["f1.py", "f2.py"]
+            IndexStack(mock_storage, mock_parser, mock_intelligence),
+            ["f1.py", "f2.py"],
         )
         assert mock_parser.distill_file.call_count == 2
         assert failures == [("f1.py", "F1 error")]

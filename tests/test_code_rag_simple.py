@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from code_rag.core.models import KnowledgeUnit, UnitKind
 from code_rag.intelligence.distiller import Distiller
 from code_rag.parsers.multi_parser import MultiParser
-from code_rag.services.indexing import sync_file
+from code_rag.services.indexing import IndexStack, sync_file
 from code_rag.services.search import run_search
 from code_rag.storage.db_connection import AccessMode, open_db_connection
 from tests.embedder_stubs import StubEmbedder
@@ -39,7 +39,9 @@ async def test_coderag_sync_and_search(temp_db):
     )
 
     await sync_file(
-        storage, mock_parser, mock_distiller, "test_file.py", force_distill=True
+        IndexStack(storage, mock_parser, mock_distiller),
+        "test_file.py",
+        force_distill=True,
     )
     res = storage.conn.execute("SELECT name, summary FROM units").fetchall()
     assert len(res) == 1

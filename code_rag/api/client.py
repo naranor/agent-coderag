@@ -17,7 +17,8 @@ from code_rag.services.discovery_api import run_api
 from code_rag.services.factory import create_stack
 from code_rag.services.search import run_search
 from code_rag.services.setup import run_setup
-from code_rag.services.sync import run_rebuild, run_sync
+from code_rag.services.indexing import IndexStack
+from code_rag.services.sync import SyncOptions, run_rebuild, run_sync
 from code_rag.storage.db_connection import AccessMode, open_db_connection
 from code_rag.storage.duckdb_impl import DuckDBStorage
 
@@ -147,15 +148,16 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
         async with self._with_storage(AccessMode.READ_WRITE) as storage:
             if self._parser is None or self._distiller is None:
                 raise RuntimeError("process stack is not initialized")
+            stack = IndexStack(storage, self._parser, self._distiller)
             return await run_sync(
-                storage,
-                self._parser,
-                self._distiller,
-                root=self._root,
-                path=path,
-                index_all=index_all,
-                force=force,
-                allow_build_execution=self._allow_build_execution,
+                stack,
+                SyncOptions(
+                    root=self._root,
+                    path=path,
+                    index_all=index_all,
+                    force=force,
+                    allow_build_execution=self._allow_build_execution,
+                ),
             )
 
     async def search(self, query: str, *, limit: int = 5) -> list[KnowledgeUnit]:
@@ -189,10 +191,9 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
         async with self._with_storage(AccessMode.READ_WRITE, wipe=True) as storage:
             if self._parser is None or self._distiller is None:
                 raise RuntimeError("process stack is not initialized")
+            stack = IndexStack(storage, self._parser, self._distiller)
             return await run_rebuild(
-                storage,
-                self._parser,
-                self._distiller,
+                stack,
                 root=self._root,
                 allow_build_execution=self._allow_build_execution,
             )

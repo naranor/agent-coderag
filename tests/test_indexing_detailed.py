@@ -7,7 +7,7 @@ import pytest
 from code_rag.core.interfaces import IIntelligence, IParser, IStorage
 from code_rag.core.models import KnowledgeUnit, UnitKind
 from code_rag.services.dependencies import sync_dependencies
-from code_rag.services.indexing import sync_file, sync_project
+from code_rag.services.indexing import IndexStack, sync_file, sync_project
 from tests.embedder_stubs import StubEmbedder
 
 
@@ -140,12 +140,13 @@ class TestIndexingDetailed:
         )
         mock_storage.get_unit.return_value = existing
 
-        await sync_file(mock_storage, mock_parser, mock_intelligence, "file.py")
+        stack = IndexStack(mock_storage, mock_parser, mock_intelligence)
+        await sync_file(stack, "file.py")
         assert unit.summary == "old summary"
         mock_intelligence.summarize.assert_not_called()
 
         unit.code_hash = "different_hash"
-        await sync_file(mock_storage, mock_parser, mock_intelligence, "file.py")
+        await sync_file(stack, "file.py")
         assert unit.summary == "distilled summary"
         mock_intelligence.summarize.assert_called_once()
 
@@ -185,7 +186,9 @@ class TestIndexingDetailed:
             ],
         ]
 
-        await sync_project(mock_storage, mock_parser, mock_intelligence, paths)
+        await sync_project(
+            IndexStack(mock_storage, mock_parser, mock_intelligence), paths
+        )
 
         assert mock_parser.distill_file.call_count == 3
         assert mock_storage.upsert_unit.call_count == 3
@@ -195,6 +198,8 @@ class TestIndexingDetailed:
         self, mock_storage, mock_parser, mock_intelligence
     ):
         """Test storage can be closed after indexing (embedder owned by facade)."""
-        await sync_file(mock_storage, mock_parser, mock_intelligence, "file.py")
+        await sync_file(
+            IndexStack(mock_storage, mock_parser, mock_intelligence), "file.py"
+        )
         await mock_storage.close()
         mock_storage.close.assert_called_once()
