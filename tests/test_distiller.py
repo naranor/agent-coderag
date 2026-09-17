@@ -7,9 +7,12 @@ from code_rag.intelligence.distiller import Distiller, DistillerConfig
 class TestDistillerConfig:
     """Tests for DistillerConfig."""
 
-    def test_load_default_config(self):
-        """Test loading default config."""
-        config = DistillerConfig.load()
+    def test_load_default_config(self, tmp_path):
+        """Test loading default config from an isolated global dir."""
+        with patch(
+            "code_rag.intelligence.distiller.get_global_dir", return_value=tmp_path
+        ):
+            config = DistillerConfig.load()
         assert config.model == "auto"
         assert config.provider == "openai"
 
