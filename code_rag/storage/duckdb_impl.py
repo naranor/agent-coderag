@@ -5,7 +5,6 @@ import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
-import duckdb
 from typing import List, Optional, Dict
 from ..core.interfaces import IStorage, IEmbedder
 from ..core.models import KnowledgeUnit, UnitKind, Relation, RelationType
@@ -352,41 +351,6 @@ class DuckDBStorage(IStorage):
                 _meta_set(self.conn, META_MODEL_KEY, embedder_model_id)
 
         await self._run_on_executor(_create_table_and_sync_meta)
-
-    @classmethod
-    async def open(
-        cls,
-        path: str,
-        embedder: Optional[IEmbedder],
-        *,
-        wipe: bool = False,
-        mode: AccessMode = AccessMode.READ_WRITE,
-    ):
-        if embedder is None:
-            raise StorageError("embedder is required")
-        executor = ThreadPoolExecutor(max_workers=1)
-        loop = asyncio.get_running_loop()
-        read_only = mode is AccessMode.READ_ONLY
-        if wipe and read_only:
-            raise StorageError("wipe=True is not supported in read-only mode")
-        conn = await loop.run_in_executor(
-            executor, lambda: duckdb.connect(path, read_only=read_only)
-        )
-        try:
-            if not read_only:
-                await loop.run_in_executor(
-                    executor, lambda: apply_rw_schema(conn, wipe=wipe)
-                )
-            storage = cls(conn, embedder, db_path=path, mode=mode, executor=executor)
-            await finalize_rw_open(storage, wipe=wipe)
-            return storage
-        except Exception:
-            try:
-                await loop.run_in_executor(executor, conn.close)
-            except Exception:  # nosec B110
-                pass
-            executor.shutdown(wait=False)
-            raise
 
     async def set_dependency_path(self, lib_name: str, path: str) -> None:
         """Caches the absolute path to a library's JAR/binary."""

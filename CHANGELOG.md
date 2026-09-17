@@ -2,6 +2,9 @@
 
 ### Breaking
 - **Pin before upgrading:** 1.4.0 changes library storage semantics. Use `agent-coderag<1.4` until you migrate callers and scripts.
+- Removed `CodeRAGManager` and `code_rag.core.manager`; use-cases live in `code_rag.services.indexing`, `dependencies`, `search`, and `sync`.
+- Removed `create_manager` / `build_manager` from `code_rag.services.factory` (use `create_stack` or the public `CodeRAG` facade).
+- Removed `DuckDBStorage.open`; use `open_db_connection` from `code_rag.storage.db_connection` or the public `CodeRAG` facade.
 - **Default `db` is unset:** `CodeRAG()` and CLI omit `--db` by default (`None`), not a hard-coded `code_rag.db`. Resolution order: cwd `code_rag.db` if exists → `{root}/code_rag.db` if exists → `{root}/.coderag.db` (create on RW ops). Use `default_db_path(root)` to preview.
 - **New create default:** fresh projects get `{root}/.coderag.db` unless a legacy `code_rag.db` is found. Relative explicit `db=` resolves against process cwd, not `root`.
 - **Ephemeral DuckDB per op:** the index file is not held open between `search`/`sync`/`api` calls; embedder/parser/distiller stay warm until `close()`.

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from code_rag.api.client import CodeRAG
-from code_rag.core.exceptions import StorageBusyError
+from code_rag.core.exceptions import StorageBusyError, StorageError
 from code_rag.storage.db_connection import AccessMode
 
 
@@ -79,13 +79,13 @@ async def test_api_java_opens_ro_without_embedder_and_closes(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_api_java_cache_miss_message(tmp_path):
+async def test_api_java_missing_db_raises_storage_error(tmp_path):
     rag = CodeRAG(db=str(tmp_path / "missing.db"), root=tmp_path)
     try:
-        out = await rag.api("guava", lang="java")
+        with pytest.raises(StorageError, match="Database file not found"):
+            await rag.api("guava", lang="java")
     finally:
         await rag.close()
-    assert "Could not find cached JAR" in out.report
 
 
 @pytest.mark.asyncio

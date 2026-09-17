@@ -6,9 +6,7 @@ from typing import AsyncIterator, Optional, Union
 
 from code_rag.api.models import ApiReport, SetupResult, SyncResult
 from code_rag.core.constants import DEFAULT_CONNECT_TIMEOUT_SECONDS
-from code_rag.core.exceptions import StorageBusyError, StorageError
 from code_rag.core.interfaces import IEmbedder, IIntelligence, IParser
-from code_rag.core.manager import CodeRAGManager
 from code_rag.core.models import KnowledgeUnit
 from code_rag.discovery.manager import DiscoveryManager
 from code_rag.discovery.providers.java import JavaDiscoveryProvider
@@ -16,7 +14,7 @@ from code_rag.intelligence.distiller import DistillerConfig
 from code_rag.paths import resolve_db_path
 from code_rag.services.config import load_or_update_config
 from code_rag.services.discovery_api import run_api
-from code_rag.services.factory import build_manager, create_stack
+from code_rag.services.factory import create_stack
 from code_rag.services.search import run_search
 from code_rag.services.setup import run_setup
 from code_rag.services.sync import run_rebuild, run_sync
@@ -27,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class CodeRAG:  # pylint: disable=too-many-instance-attributes
-    """Public async facade over CodeRAG services and the storage/search manager."""
+    """Public async facade: process-scoped stack + ephemeral DB per operation."""
 
     def __init__(  # pylint: disable=too-many-arguments
         self,
@@ -62,16 +60,12 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
         self._embedder, self._parser, self._distiller = await create_stack(self._onnx)
 
     @asynccontextmanager
-    async def _with_manager(
+    async def _with_storage(
         self, mode: AccessMode, *, wipe: bool = False
-    ) -> AsyncIterator[CodeRAGManager]:
+    ) -> AsyncIterator[DuckDBStorage]:
         async with self._op_lock:
             await self._ensure_stack()
-            if (
-                self._embedder is None
-                or self._parser is None
-                or self._distiller is None
-            ):
+            if self._embedder is None:
                 raise RuntimeError("process stack is not initialized")
             storage = await open_db_connection(
                 self._db_path,
@@ -81,14 +75,8 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
                 wipe=wipe,
             )
             self._storage = storage
-            manager = build_manager(
-                storage,
-                self._parser,
-                self._distiller,
-                allow_build_execution=self._allow_build_execution,
-            )
             try:
-                yield manager
+                yield storage
             finally:
                 await storage.close()
                 self._storage = None
@@ -156,18 +144,23 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
     ) -> SyncResult:
         if path is None and not index_all:
             return SyncResult(status="success", indexed_files=0)
-        async with self._with_manager(AccessMode.READ_WRITE) as manager:
+        async with self._with_storage(AccessMode.READ_WRITE) as storage:
+            if self._parser is None or self._distiller is None:
+                raise RuntimeError("process stack is not initialized")
             return await run_sync(
-                manager,
+                storage,
+                self._parser,
+                self._distiller,
                 root=self._root,
                 path=path,
                 index_all=index_all,
                 force=force,
+                allow_build_execution=self._allow_build_execution,
             )
 
     async def search(self, query: str, *, limit: int = 5) -> list[KnowledgeUnit]:
-        async with self._with_manager(AccessMode.READ_ONLY) as manager:
-            return await run_search(manager, query, limit=limit)
+        async with self._with_storage(AccessMode.READ_ONLY) as storage:
+            return await run_search(storage, query, limit=limit)
 
     async def _api_java(
         self,
@@ -177,17 +170,12 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
         language: str,
     ) -> ApiReport:
         async with self._op_lock:
-            try:
-                async with self._metadata_ro_connection() as storage:
-                    provider.storage = storage
-                    try:
-                        return await run_api(discovery, library, lang=language)
-                    finally:
-                        provider.storage = None
-            except StorageError as exc:
-                if isinstance(exc, StorageBusyError):
-                    raise
-                return await run_api(discovery, library, lang=language)
+            async with self._metadata_ro_connection() as storage:
+                provider.storage = storage
+                try:
+                    return await run_api(discovery, library, lang=language)
+                finally:
+                    provider.storage = None
 
     async def api(self, library: str, *, lang: Optional[str] = None) -> ApiReport:
         language = lang or "python"
@@ -198,5 +186,13 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
         return await run_api(discovery, library, lang=language)
 
     async def rebuild(self) -> SyncResult:
-        async with self._with_manager(AccessMode.READ_WRITE, wipe=True) as manager:
-            return await run_rebuild(manager, root=self._root)
+        async with self._with_storage(AccessMode.READ_WRITE, wipe=True) as storage:
+            if self._parser is None or self._distiller is None:
+                raise RuntimeError("process stack is not initialized")
+            return await run_rebuild(
+                storage,
+                self._parser,
+                self._distiller,
+                root=self._root,
+                allow_build_execution=self._allow_build_execution,
+            )

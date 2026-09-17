@@ -109,4 +109,49 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## 5. Hermetic E2E and Hang Discipline
+
+**E2E must not depend on the developer machine. Hangs are failures, not "noise".**
+
+### Environment
+- Isolate `LOCALAPPDATA` / config / model cache for package and live e2e. Do not rely on the developer's global `config.json`.
+- Prefer an explicit `--onnx` (or seeded MiniLM under the isolated appdata) over implicit global models.
+- At the start of path/resolve live checks: `chdir` into a clean temp tree. Never assert resolve behavior from the repo root if `code_rag.db` / `.coderag.db` may exist in cwd.
+
+### Subprocesses and timeouts
+- Every test `subprocess.run` / CLI helper must set `timeout=`.
+- Prefer `pytest-timeout` (or equivalent) for e2e so a hang fails the job instead of requiring a manual kill.
+- If a process was killed to unblock the agent, **do not** treat the suite as green until it passes without kills.
+
+### Hang playbook (Windows)
+1. Reproduce with a short timeout (don't attach a debugger first).
+2. Bisect: 1 file vs 2+ files in `sync --all` (concurrency).
+3. Re-run under isolated appdata (config/distill).
+4. Only then inspect locks / PIDs — remember `venv\Scripts\python.exe` may be a stub over the real interpreter (parent/child with the same argv is often normal).
+
+## 6. Concurrency and Queue Safety
+
+**Worker pools need negative tests with deadlines.**
+
+- Do not use `queue.empty()` followed by blocking `queue.get()` in asyncio workers. Prefer `get_nowait()` / sentinels / join patterns.
+- Any change to `sync_project` (or similar pools): add a test with **more workers than items** and wrap in `asyncio.wait_for(..., timeout=…)`.
+- E2E sync coverage must use **≥ 2 source files** so worker-pool races can surface.
+- When reviewing thread-affine DuckDB / single-thread executors: check that concurrent callers cannot deadlock on locks + executor shutdown.
+
+## 7. Live Compat Scripts vs Product Bugs
+
+**A red live script is not automatically a product bug.**
+
+- Prefer canonical tests under `e2e_tests/` or `tests/` over one-off TEMP scripts. If a live script is needed, copy public API usage from README / `test_readme_*`.
+- Before blaming resolve/storage: read the real signature (`resolve_db_path(db, *, root=…)`) and existing unit tests (`test_db_path.py`, incomplete-meta storage tests).
+- Import meta keys from the module that owns them (e.g. storage), or use the string values those tests already use — do not invent `constants.META_*`.
+- Separate failures: wrong test harness vs product regression. Fix the harness first when the unit suite already covers the behavior.
+
+## 8. Scope Blind Spots After Redesigns
+
+**A redesign does not excuse untested neighbors.**
+
+- After storage/lifetime/API changes, still run concurrency e2e (`sync --all` multi-file) and legacy-DB compat — even if the redesign did not touch that code.
+- Manual kill of "orphan CLI" during e2e is a smell: file a hang repro (1 vs 2 files, isolated env) before continuing the roadmap.
+
 ---

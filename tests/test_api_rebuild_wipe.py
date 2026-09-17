@@ -29,9 +29,6 @@ async def test_rebuild_opens_once_with_wipe(tmp_path, monkeypatch):
     )
     monkeypatch.setattr("code_rag.api.client.open_db_connection", tracking_open)
     monkeypatch.setattr(
-        "code_rag.api.client.build_manager", lambda *a, **k: MagicMock()
-    )
-    monkeypatch.setattr(
         "code_rag.api.client.run_rebuild",
         AsyncMock(return_value=SyncResult(status="success", indexed_files=1)),
     )
@@ -87,9 +84,6 @@ async def test_search_uses_read_only_connection(tmp_path, monkeypatch):
         AsyncMock(return_value=(embedder, MagicMock(), MagicMock())),
     )
     monkeypatch.setattr("code_rag.api.client.open_db_connection", tracking_open)
-    monkeypatch.setattr(
-        "code_rag.api.client.build_manager", lambda *a, **k: MagicMock()
-    )
     monkeypatch.setattr("code_rag.api.client.run_search", AsyncMock(return_value=[]))
 
     async with CodeRAG(db=str(tmp_path / "p.db"), root=tmp_path) as rag:
@@ -165,7 +159,7 @@ async def test_api_forwards_lang():
     ), patch(
         "code_rag.api.client.open_db_connection",
         new=AsyncMock(return_value=storage),
-    ), patch("code_rag.api.client.build_manager", return_value=MagicMock()), patch(
+    ), patch(
         "code_rag.api.client.run_api", new=AsyncMock(return_value=report)
     ) as mock_api:
         rag = CodeRAG()

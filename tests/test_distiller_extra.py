@@ -12,7 +12,7 @@ class TestDistillerExtra:
         distiller = Distiller(config)
 
         # Match litellm error behavior
-        with patch("litellm.completion", side_effect=Exception("Connection error")):
+        with patch("litellm.acompletion", side_effect=Exception("Connection error")):
             with pytest.raises(Exception) as exc:
                 await distiller.summarize("code", "unit")
             assert "Connection error" in str(exc.value)

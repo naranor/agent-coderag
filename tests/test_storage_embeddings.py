@@ -1,4 +1,5 @@
 import hashlib
+from pathlib import Path
 from unittest.mock import patch
 
 import duckdb
@@ -10,7 +11,6 @@ from code_rag.core.exceptions import IntelligenceError, StorageError
 from code_rag.core.models import KnowledgeUnit, UnitKind
 from code_rag.storage.db_connection import AccessMode, open_db_connection
 from code_rag.storage.duckdb_impl import (
-    DuckDBStorage,
     _meta_get,
     _parse_positive_dim,
     _schema_vec_width,
@@ -42,13 +42,20 @@ def test_float_vec_sql_type_int_only():
 @pytest.mark.asyncio
 async def test_open_requires_embedder(tmp_path):
     with pytest.raises(StorageError, match="embedder is required"):
-        await DuckDBStorage.open(str(tmp_path / "t.db"), None)
+        await open_db_connection(
+            tmp_path / "t.db",
+            None,
+            mode=AccessMode.READ_WRITE,
+            connect_timeout_seconds=0,
+        )
 
 
 @pytest.mark.asyncio
 async def test_open_does_not_probe_or_create_embeddings(tmp_path):
     stub = UnboundStubEmbedder(probe_dim=16, model_id="remote-16")
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    storage = await open_db_connection(
+        tmp_path / "t.db", stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     assert stub.aembed_calls == []
     row = storage.conn.execute(
         "SELECT 1 FROM information_schema.tables WHERE lower(table_name)='unit_embeddings'"
@@ -63,7 +70,9 @@ async def test_open_does_not_probe_or_create_embeddings(tmp_path):
 @pytest.mark.asyncio
 async def test_ensure_bound_probes_and_creates_table(tmp_path):
     stub = UnboundStubEmbedder(probe_dim=16, model_id="remote-16")
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    storage = await open_db_connection(
+        tmp_path / "t.db", stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.ensure_embeddings_bound()
     assert stub.dimension == 16
     assert stub.aembed_calls[0] == [EMBEDDING_PROBE_TEXT]
@@ -80,7 +89,9 @@ async def test_ensure_bound_probes_and_creates_table(tmp_path):
 @pytest.mark.asyncio
 async def test_upsert_does_not_call_embedder(tmp_path):
     stub = StubEmbedder(dim=8)
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    storage = await open_db_connection(
+        tmp_path / "t.db", stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     stub.aembed_calls.clear()
     await storage.upsert_unit(_unit(), vector=[0.1] * 8)
     assert stub.aembed_calls == []
@@ -91,7 +102,9 @@ async def test_upsert_does_not_call_embedder(tmp_path):
 @pytest.mark.asyncio
 async def test_search_uses_embedder_dimension_not_384(tmp_path):
     stub = StubEmbedder(dim=8, model_id="stub")
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    storage = await open_db_connection(
+        tmp_path / "t.db", stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.upsert_unit(_unit(), vector=[1.0] + [0.0] * 7)
     stub.aembed_calls.clear()
     hits = await storage.search_units("q", limit=1)
@@ -103,7 +116,9 @@ async def test_search_uses_embedder_dimension_not_384(tmp_path):
 @pytest.mark.asyncio
 async def test_no_ilike_fallback_without_vector_row(tmp_path):
     stub = StubEmbedder(dim=8)
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    storage = await open_db_connection(
+        tmp_path / "t.db", stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.upsert_unit(_unit())  # no vector
     hits = await storage.search_units("u1")
     assert hits == []
@@ -114,19 +129,39 @@ async def test_no_ilike_fallback_without_vector_row(tmp_path):
 async def test_failed_bind_on_dim_mismatch(tmp_path):
     path = str(tmp_path / "t.db")
     stub16 = StubEmbedder(dim=16, model_id="m16")
-    storage = await DuckDBStorage.open(path, stub16)
+    storage = await open_db_connection(
+        Path(path), stub16, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.ensure_embeddings_bound()
     await storage.close()
     stub8 = StubEmbedder(dim=8, model_id="m8")
-    storage = await DuckDBStorage.open(path, stub8, wipe=False)
+    storage = await open_db_connection(
+        Path(path),
+        stub8,
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+        wipe=False,
+    )
     with pytest.raises(StorageError, match="Run rebuild") as ei:
         await storage.ensure_embeddings_bound()
     assert ei.value.code is ErrorCode.EMBEDDING_MISMATCH
     await storage.close()
-    storage = await DuckDBStorage.open(path, stub16, wipe=False)
+    storage = await open_db_connection(
+        Path(path),
+        stub16,
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+        wipe=False,
+    )
     await storage.ensure_embeddings_bound()
     await storage.close()
-    storage = await DuckDBStorage.open(path, stub8, wipe=True)
+    storage = await open_db_connection(
+        Path(path),
+        stub8,
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+        wipe=True,
+    )
     await storage.ensure_embeddings_bound()
     await storage.close()
 
@@ -135,11 +170,19 @@ async def test_failed_bind_on_dim_mismatch(tmp_path):
 async def test_dim_mismatch_search_sync_storage_error(tmp_path):
     path = str(tmp_path / "t.db")
     stub16 = StubEmbedder(dim=16, model_id="m16")
-    storage = await DuckDBStorage.open(path, stub16)
+    storage = await open_db_connection(
+        Path(path), stub16, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.ensure_embeddings_bound()
     await storage.close()
     stub8 = StubEmbedder(dim=8, model_id="m8")
-    storage = await DuckDBStorage.open(path, stub8, wipe=False)
+    storage = await open_db_connection(
+        Path(path),
+        stub8,
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+        wipe=False,
+    )
     with pytest.raises(StorageError, match="Run rebuild") as ei:
         await storage.ensure_embeddings_bound()
     assert ei.value.code is ErrorCode.EMBEDDING_MISMATCH
@@ -150,11 +193,19 @@ async def test_dim_mismatch_search_sync_storage_error(tmp_path):
 async def test_rebuild_wipe_recreates_float_n(tmp_path):
     path = str(tmp_path / "t.db")
     stub16 = StubEmbedder(dim=16, model_id="m16")
-    storage = await DuckDBStorage.open(path, stub16)
+    storage = await open_db_connection(
+        Path(path), stub16, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.upsert_unit(_unit(), vector=[0.0] * 16)
     await storage.close()
     stub8 = StubEmbedder(dim=8, model_id="m8")
-    storage = await DuckDBStorage.open(path, stub8, wipe=True)
+    storage = await open_db_connection(
+        Path(path),
+        stub8,
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+        wipe=True,
+    )
     await storage.ensure_embeddings_bound()
     desc = storage.conn.execute("DESCRIBE unit_embeddings").fetchall()
     types = {r[0]: r[1] for r in desc}
@@ -178,7 +229,13 @@ async def test_legacy_without_meta_infers_384(tmp_path):
     )
     conn.close()
     stub = StubEmbedder(dim=384, model_id=LOCAL_EMBEDDING_MODEL_ID)
-    storage = await DuckDBStorage.open(path, stub, wipe=False)
+    storage = await open_db_connection(
+        Path(path),
+        stub,
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+        wipe=False,
+    )
     await storage.ensure_embeddings_bound()
     dim = storage.conn.execute(
         "SELECT value FROM index_meta WHERE key='embedding_dim'"
@@ -205,7 +262,13 @@ async def test_legacy_without_meta_dim_mismatch_raises_storage_error(tmp_path):
     )
     conn.close()
     stub = StubEmbedder(dim=8, model_id=LOCAL_EMBEDDING_MODEL_ID)
-    storage = await DuckDBStorage.open(path, stub, wipe=False)
+    storage = await open_db_connection(
+        Path(path),
+        stub,
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+        wipe=False,
+    )
     with pytest.raises(
         StorageError,
         match=r"Embedding dimension mismatch \(index=384, embedder=8\)\. Run rebuild\.",
@@ -218,13 +281,20 @@ async def test_legacy_without_meta_dim_mismatch_raises_storage_error(tmp_path):
 @pytest.mark.asyncio
 async def test_corrupt_meta_storage_error(tmp_path):
     stub = StubEmbedder(dim=384)
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    storage = await open_db_connection(
+        tmp_path / "t.db", stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.ensure_embeddings_bound()
     storage.conn.execute(
         "INSERT OR REPLACE INTO index_meta VALUES ('embedding_dim', 'nope')"
     )
     await storage.close()
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), StubEmbedder(dim=384))
+    storage = await open_db_connection(
+        tmp_path / "t.db",
+        StubEmbedder(dim=384),
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
     with pytest.raises(StorageError, match="Corrupt embedding metadata") as ei:
         await storage.ensure_embeddings_bound()
     assert ei.value.code is ErrorCode.STORAGE_CORRUPT
@@ -235,11 +305,15 @@ async def test_corrupt_meta_storage_error(tmp_path):
 async def test_dirty_model_same_dim_search_warns(tmp_path, capsys):
     path = str(tmp_path / "t.db")
     a = StubEmbedder(dim=8, model_id="model-a")
-    storage = await DuckDBStorage.open(path, a)
+    storage = await open_db_connection(
+        Path(path), a, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.upsert_unit(_unit(), vector=[0.0] * 8)
     await storage.close()
     b = StubEmbedder(dim=8, model_id="model-b")
-    storage = await DuckDBStorage.open(path, b, wipe=False)
+    storage = await open_db_connection(
+        Path(path), b, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0, wipe=False
+    )
     assert storage.embedding_model_dirty is True
     hits = await storage.search_units("q")
     assert hits[0].id == "u1"
@@ -252,11 +326,19 @@ async def test_dirty_model_same_dim_search_warns(tmp_path, capsys):
 async def test_custom_onnx_dim_mismatch_is_storage_error(tmp_path):
     path = str(tmp_path / "t.db")
     local384 = StubEmbedder(dim=384, model_id=LOCAL_EMBEDDING_MODEL_ID)
-    storage = await DuckDBStorage.open(path, local384)
+    storage = await open_db_connection(
+        Path(path), local384, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.ensure_embeddings_bound()
     await storage.close()
     custom8 = StubEmbedder(dim=8, model_id=LOCAL_EMBEDDING_MODEL_ID)
-    storage = await DuckDBStorage.open(path, custom8, wipe=False)
+    storage = await open_db_connection(
+        Path(path),
+        custom8,
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+        wipe=False,
+    )
     with pytest.raises(StorageError, match="Run rebuild") as ei:
         await storage.ensure_embeddings_bound()
     assert ei.value.code is ErrorCode.EMBEDDING_MISMATCH
@@ -267,11 +349,15 @@ async def test_custom_onnx_dim_mismatch_is_storage_error(tmp_path):
 async def test_model_match_skips_probe(tmp_path):
     path = str(tmp_path / "t.db")
     stub = UnboundStubEmbedder(probe_dim=8, model_id="remote-8")
-    storage = await DuckDBStorage.open(path, stub)
+    storage = await open_db_connection(
+        Path(path), stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.ensure_embeddings_bound()
     await storage.close()
     stub2 = UnboundStubEmbedder(probe_dim=8, model_id="remote-8")
-    storage = await DuckDBStorage.open(path, stub2)
+    storage = await open_db_connection(
+        Path(path), stub2, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.ensure_embeddings_bound()
     probe_calls = [c for c in stub2.aembed_calls if c == [EMBEDDING_PROBE_TEXT]]
     assert probe_calls == []
@@ -281,7 +367,9 @@ async def test_model_match_skips_probe(tmp_path):
 @pytest.mark.asyncio
 async def test_non_vector_ops_do_not_bind(tmp_path):
     stub = UnboundStubEmbedder(probe_dim=16, model_id="remote-16")
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    storage = await open_db_connection(
+        tmp_path / "t.db", stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.set_dependency_path("lib", "/tmp/lib.jar")
     assert await storage.get_dependency_path("lib") == "/tmp/lib.jar"
     await storage.upsert_unit(_unit())
@@ -328,13 +416,20 @@ async def test_probe_empty_rows_raises_count_mismatch():
 async def test_corrupt_schema_vs_meta_raises(tmp_path):
     path = str(tmp_path / "t.db")
     stub = StubEmbedder(dim=8, model_id="m8")
-    storage = await DuckDBStorage.open(path, stub)
+    storage = await open_db_connection(
+        Path(path), stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.ensure_embeddings_bound()
     storage.conn.execute(
         "INSERT OR REPLACE INTO index_meta VALUES ('embedding_dim', '384')"
     )
     await storage.close()
-    storage = await DuckDBStorage.open(path, StubEmbedder(dim=8, model_id="m8"))
+    storage = await open_db_connection(
+        Path(path),
+        StubEmbedder(dim=8, model_id="m8"),
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
     with pytest.raises(StorageError, match="Corrupt embedding metadata") as ei:
         await storage.ensure_embeddings_bound()
     assert ei.value.code is ErrorCode.STORAGE_CORRUPT
@@ -355,7 +450,13 @@ async def test_legacy_incomplete_meta_probes_remote(tmp_path):
     )
     conn.close()
     stub = UnboundStubEmbedder(probe_dim=384, model_id="remote-384")
-    storage = await DuckDBStorage.open(path, stub, wipe=False)
+    storage = await open_db_connection(
+        Path(path),
+        stub,
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+        wipe=False,
+    )
     await storage.ensure_embeddings_bound()
     assert stub.aembed_calls[0] == [EMBEDDING_PROBE_TEXT]
     assert stub.dimension == 384
@@ -404,7 +505,9 @@ async def test_ensure_bound_double_checked_lock(tmp_path):
     import asyncio as aio
 
     stub = UnboundStubEmbedder(probe_dim=8, model_id="remote-8")
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    storage = await open_db_connection(
+        tmp_path / "t.db", stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     original = storage._bind_embeddings
 
     async def slow_bind():
@@ -427,7 +530,12 @@ async def test_open_failure_closes_connection(tmp_path):
         side_effect=RuntimeError("boom"),
     ):
         with pytest.raises(RuntimeError, match="boom"):
-            await DuckDBStorage.open(str(tmp_path / "t.db"), StubEmbedder())
+            await open_db_connection(
+                tmp_path / "t.db",
+                StubEmbedder(),
+                mode=AccessMode.READ_WRITE,
+                connect_timeout_seconds=0,
+            )
 
 
 @pytest.mark.asyncio
@@ -437,19 +545,26 @@ async def test_open_failure_ignores_close_error():
             raise RuntimeError("close fail")
 
     with patch(
-        "code_rag.storage.duckdb_impl.duckdb.connect", return_value=BoomConn()
+        "code_rag.storage.db_connection.duckdb.connect", return_value=BoomConn()
     ), patch(
         "code_rag.storage.duckdb_impl._ensure_base_tables",
         side_effect=RuntimeError("boom"),
     ):
         with pytest.raises(RuntimeError, match="boom"):
-            await DuckDBStorage.open("ignored.db", StubEmbedder())
+            await open_db_connection(
+                Path("ignored.db"),
+                StubEmbedder(),
+                mode=AccessMode.READ_WRITE,
+                connect_timeout_seconds=0,
+            )
 
 
 @pytest.mark.asyncio
 async def test_list_units_and_mark_synced(tmp_path):
     stub = StubEmbedder(dim=8, model_id="m8")
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    storage = await open_db_connection(
+        tmp_path / "t.db", stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
     await storage.upsert_unit(_unit(), vector=[0.0] * 8)
     listed = await storage.list_units()
     assert listed[0].id == "u1"
@@ -465,7 +580,12 @@ async def test_list_units_and_mark_synced(tmp_path):
 
 @pytest.mark.asyncio
 async def test_close_skips_missing_embedder_and_conn(tmp_path):
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), StubEmbedder())
+    storage = await open_db_connection(
+        tmp_path / "t.db",
+        StubEmbedder(),
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
     conn = storage.conn
     storage._embedder = None
     storage.conn = None
@@ -478,7 +598,9 @@ async def test_concurrent_upsert_and_get_keep_kind(tmp_path):
     import asyncio as aio
 
     stub = StubEmbedder(dim=8)
-    storage = await DuckDBStorage.open(str(tmp_path / "t.db"), stub)
+    storage = await open_db_connection(
+        tmp_path / "t.db", stub, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
 
     async def one(i: int) -> None:
         uid = f"u{i}"

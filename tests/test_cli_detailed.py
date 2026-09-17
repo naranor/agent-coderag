@@ -153,6 +153,58 @@ class TestCLIDetailed:
             instances[0].close.assert_awaited()
 
     @pytest.mark.asyncio
+    async def test_search_cmd_json_error(self):
+        fake_cls, instances = fake_coderag_class(
+            search=AsyncMock(side_effect=Exception("Database file not found: x.db"))
+        )
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
+            args = argparse.Namespace(
+                db="x.db",
+                onnx=None,
+                verbose=False,
+                json=True,
+                query="auth",
+                limit=5,
+            )
+            old_stdout = sys.stdout
+            sys.stdout = StringIO()
+            try:
+                with pytest.raises(SystemExit) as exc:
+                    await cli.search_cmd(args)
+                assert exc.value.code == 1
+                data = json.loads(sys.stdout.getvalue())
+                assert data["status"] == "error"
+                assert "Database file not found" in data["message"]
+            finally:
+                sys.stdout = old_stdout
+            instances[0].close.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_search_cmd_human_error(self):
+        fake_cls, _ = fake_coderag_class(
+            search=AsyncMock(side_effect=Exception("Database file not found: x.db"))
+        )
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
+            args = argparse.Namespace(
+                db="x.db",
+                onnx=None,
+                verbose=False,
+                json=False,
+                query="auth",
+                limit=5,
+            )
+            old_stderr = sys.stderr
+            sys.stderr = StringIO()
+            try:
+                with pytest.raises(SystemExit) as exc:
+                    await cli.search_cmd(args)
+                assert exc.value.code == 1
+                err = sys.stderr.getvalue()
+            finally:
+                sys.stderr = old_stderr
+        assert "Database file not found" in err
+
+    @pytest.mark.asyncio
     async def test_sync_cmd_human_error(self):
         fake_cls, _ = fake_coderag_class(
             sync=AsyncMock(side_effect=Exception("Critical Failure"))

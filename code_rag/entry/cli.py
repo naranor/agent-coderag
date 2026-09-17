@@ -143,6 +143,13 @@ async def search_cmd(args):
                 if r.summary:
                     print(f"  Summary: {r.summary}")
                 print("-" * 20)
+    except Exception as e:
+        logger.error("Search failed: %s", e)
+        if args.json:
+            print(json.dumps({"status": "error", "message": str(e)}))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        raise SystemExit(1) from e
     finally:
         await rag.close()
 

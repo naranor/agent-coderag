@@ -3,6 +3,10 @@
 A dedicated single-thread executor is created per connection and used for
 every DuckDB operation (connect, execute, close), since a DuckDB connection
 is not safe to use concurrently across threads.
+
+Lock contention is detected by exception *type* (``duckdb.IOException``), not
+by parsing localized OS/DuckDB error strings. See DuckDB concurrency docs:
+file locks raise IOException; there is no separate lock probe API.
 """
 
 import asyncio
@@ -19,20 +23,12 @@ from .duckdb_impl import AccessMode, DuckDBStorage, apply_rw_schema, finalize_rw
 
 __all__ = ["AccessMode", "open_db_connection"]
 
-_BUSY_MARKERS = (
-    "could not set lock",
-    "conflicting lock",
-    "lock on file",
-    "database is locked",
-    "resource temporarily unavailable",
-)
-
 _RETRY_INTERVAL_SECONDS = 0.02
 
 
 def _is_busy_error(exc: BaseException) -> bool:
-    message = str(exc).lower()
-    return any(marker in message for marker in _BUSY_MARKERS)
+    """True when DuckDB failed to open due to file-lock / sharing contention."""
+    return isinstance(exc, duckdb.IOException)
 
 
 async def _connect_with_retry(
@@ -69,6 +65,10 @@ async def open_db_connection(
 
     ``embedder`` may be ``None`` only for read-only, metadata-only access
     (e.g. ``get_dependency_path``); vector operations still require it.
+
+    Concurrent writers (or a writer vs reader) surface as ``duckdb.IOException``
+    on connect; those are retried until ``connect_timeout_seconds`` elapses,
+    then raised as ``StorageBusyError``.
     """
     path = Path(path)
     read_only = mode is AccessMode.READ_ONLY

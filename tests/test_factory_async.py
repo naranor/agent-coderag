@@ -2,44 +2,43 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from code_rag.core.exceptions import StorageError
 from code_rag.intelligence.distiller import DistillerConfig
-from code_rag.services.factory import create_manager
-from code_rag.storage.db_connection import AccessMode
+from code_rag.services.factory import create_stack
 
 
 @pytest.mark.asyncio
-async def test_create_manager_opens_storage_with_wipe():
+async def test_create_stack_returns_embedder_parser_distiller():
     embedder = MagicMock()
-    storage = MagicMock()
-    manager = MagicMock()
+    parser = MagicMock()
+    distiller = MagicMock()
+    cfg = DistillerConfig()
     with patch(
         "code_rag.services.factory.DistillerConfig.load",
-        return_value=DistillerConfig(),
+        return_value=cfg,
     ), patch(
         "code_rag.services.factory.create_embedder",
         new=AsyncMock(return_value=embedder),
     ) as mock_ce, patch(
-        "code_rag.services.factory.open_db_connection",
-        new=AsyncMock(return_value=storage),
-    ) as mock_open, patch("code_rag.services.factory.Distiller"), patch(
-        "code_rag.services.factory.MultiParser"
-    ), patch(
-        "code_rag.services.factory.CodeRAGManager",
-        return_value=manager,
-    ):
-        out = await create_manager(
-            "test.db", onnx_path="model.onnx", allow_build_execution=True, wipe=True
+        "code_rag.services.factory.Distiller",
+        return_value=distiller,
+    ) as mock_distiller, patch(
+        "code_rag.services.factory.MultiParser",
+        return_value=parser,
+    ) as mock_parser:
+        out_embedder, out_parser, out_distiller = await create_stack(
+            onnx_path="model.onnx"
         )
-    assert out is manager
-    mock_ce.assert_awaited_once()
-    mock_open.assert_awaited_once()
-    assert mock_open.await_args.kwargs["mode"] is AccessMode.READ_WRITE
-    assert mock_open.await_args.kwargs["wipe"] is True
+
+    assert out_embedder is embedder
+    assert out_parser is parser
+    assert out_distiller is distiller
+    mock_ce.assert_awaited_once_with(cfg, onnx_path="model.onnx")
+    mock_distiller.assert_called_once_with(cfg)
+    mock_parser.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_create_manager_selects_remote_via_same_rule():
+async def test_create_stack_passes_config_to_embedder():
     cfg = DistillerConfig(embedding_base="http://e", embedding_model="emb")
     remote = MagicMock(name="remote")
     with patch(
@@ -47,37 +46,8 @@ async def test_create_manager_selects_remote_via_same_rule():
     ), patch(
         "code_rag.services.factory.create_embedder",
         new=AsyncMock(return_value=remote),
-    ) as mock_ce, patch(
-        "code_rag.services.factory.open_db_connection",
-        new=AsyncMock(return_value=MagicMock()),
-    ), patch("code_rag.services.factory.Distiller"), patch(
+    ) as mock_ce, patch("code_rag.services.factory.Distiller"), patch(
         "code_rag.services.factory.MultiParser"
-    ), patch(
-        "code_rag.services.factory.CodeRAGManager",
-        return_value=MagicMock(),
     ):
-        await create_manager("db.db")
+        await create_stack()
     assert mock_ce.await_args.args[0] is cfg
-
-
-@pytest.mark.asyncio
-async def test_create_manager_closes_embedder_when_open_fails():
-    embedder = MagicMock()
-    embedder.close = AsyncMock()
-    with patch(
-        "code_rag.services.factory.DistillerConfig.load",
-        return_value=DistillerConfig(),
-    ), patch(
-        "code_rag.services.factory.create_embedder",
-        new=AsyncMock(return_value=embedder),
-    ), patch(
-        "code_rag.services.factory.open_db_connection",
-        new=AsyncMock(side_effect=StorageError("open failed")),
-    ), patch("code_rag.services.factory.Distiller"), patch(
-        "code_rag.services.factory.MultiParser"
-    ), patch(
-        "code_rag.services.factory.CodeRAGManager",
-    ):
-        with pytest.raises(StorageError, match="open failed"):
-            await create_manager("db.db")
-    embedder.close.assert_awaited_once()

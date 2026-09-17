@@ -97,18 +97,25 @@ async def test_run_api_defaults_language_python():
 
 @pytest.mark.asyncio
 async def test_run_sync_noop_when_no_path_and_not_index_all():
-    manager = MagicMock()
-    manager.sync_dependencies = AsyncMock()
-    manager.sync_project = AsyncMock()
-    manager.sync_file = AsyncMock()
-    result = await run_sync(
-        manager, root=Path("."), path=None, index_all=False, force=False
-    )
+    storage = MagicMock()
+    parser = MagicMock()
+    intel = MagicMock()
+    with patch(
+        "code_rag.services.sync.sync_project", new=AsyncMock()
+    ) as mock_sp, patch("code_rag.services.sync.sync_dependencies", new=AsyncMock()):
+        result = await run_sync(
+            storage,
+            parser,
+            intel,
+            root=Path("."),
+            path=None,
+            index_all=False,
+            force=False,
+        )
     assert isinstance(result, SyncResult)
     assert result.status == "success"
     assert result.indexed_files == 0
-    manager.sync_project.assert_not_called()
-    manager.sync_file.assert_not_called()
+    mock_sp.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -157,7 +164,7 @@ async def test_search_closes_storage_then_embedder():
     ), patch(
         "code_rag.api.client.open_db_connection",
         new=AsyncMock(return_value=storage),
-    ), patch("code_rag.api.client.build_manager", return_value=MagicMock()), patch(
+    ), patch(
         "code_rag.api.client.run_search", new=AsyncMock(return_value=[])
     ) as mock_search:
         async with CodeRAG() as rag:

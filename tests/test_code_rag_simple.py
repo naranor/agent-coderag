@@ -1,11 +1,12 @@
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
-from code_rag.core.manager import CodeRAGManager
-from code_rag.storage.duckdb_impl import DuckDBStorage
-from code_rag.parsers.multi_parser import MultiParser
+from code_rag.core.models import KnowledgeUnit, UnitKind
 from code_rag.intelligence.distiller import Distiller
-from code_rag.core.models import UnitKind, KnowledgeUnit
+from code_rag.parsers.multi_parser import MultiParser
+from code_rag.services.indexing import sync_file
+from code_rag.services.search import run_search
+from code_rag.storage.db_connection import AccessMode, open_db_connection
 from tests.embedder_stubs import StubEmbedder
 
 
@@ -17,7 +18,9 @@ def temp_db(tmp_path):
 @pytest.mark.asyncio
 async def test_coderag_sync_and_search(temp_db):
     mock_embedder = StubEmbedder(dim=384)
-    storage = await DuckDBStorage.open(temp_db, mock_embedder)
+    storage = await open_db_connection(
+        temp_db, mock_embedder, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
 
     mock_parser = MagicMock(spec=MultiParser)
     test_unit = KnowledgeUnit(
@@ -35,13 +38,14 @@ async def test_coderag_sync_and_search(temp_db):
         return_value="This is a test function for RAG."
     )
 
-    manager = CodeRAGManager(storage, mock_parser, mock_distiller)
-    await manager.sync_file("test_file.py", force_distill=True)
+    await sync_file(
+        storage, mock_parser, mock_distiller, "test_file.py", force_distill=True
+    )
     res = storage.conn.execute("SELECT name, summary FROM units").fetchall()
     assert len(res) == 1
     assert res[0][0] == "test_func"
     assert res[0][1] == "This is a test function for RAG."
-    search_results = await manager.search("test function", limit=1)
+    search_results = await run_search(storage, "test function", limit=1)
     assert len(search_results) == 1
     assert search_results[0].name == "test_func"
-    await manager.close()
+    await storage.close()

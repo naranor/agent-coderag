@@ -6,17 +6,16 @@ import pytest
 
 from code_rag.api.models import SyncFileError, SyncResult
 from code_rag.entry import cli
+from code_rag.services.indexing import sync_project
 from code_rag.services.sync import run_rebuild, run_sync
 from tests.fake_coderag import fake_coderag_class
 
 
-def _manager_mock(failures=None):
-    manager = MagicMock()
-    manager.sync_dependencies = AsyncMock()
-    manager.sync_project = AsyncMock(return_value=list(failures or []))
-    manager.sync_file = AsyncMock()
-    manager.close = AsyncMock()
-    return manager
+def _stack_mock():
+    storage = MagicMock()
+    parser = MagicMock()
+    intel = MagicMock()
+    return storage, parser, intel
 
 
 def _cli_args(*, json_mode, path=None, index_all=True):
@@ -34,8 +33,6 @@ def _cli_args(*, json_mode, path=None, index_all=True):
 
 @pytest.mark.asyncio
 async def test_sync_project_reports_stderr_and_returns_failures(capsys):
-    from code_rag.core.manager import CodeRAGManager
-
     storage = MagicMock()
     storage.embedding_model_dirty = False
     storage.embedder = MagicMock()
@@ -52,11 +49,38 @@ async def test_sync_project_reports_stderr_and_returns_failures(capsys):
 
     parser.distill_file = AsyncMock(side_effect=distill)
     intel = MagicMock()
-    manager = CodeRAGManager(storage, parser, intel)
-    failures = await manager.sync_project(["a.py", "b.py"])
+    failures = await sync_project(storage, parser, intel, ["a.py", "b.py"])
     assert failures == [("a.py", "timeout")]
     assert parser.distill_file.call_count == 2
     assert "Worker failed to sync a.py: timeout" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_sync_project_does_not_hang_when_workers_outnumber_paths():
+    """Regression: empty()/get() raced and left a worker blocked forever."""
+    import asyncio
+
+    storage = MagicMock()
+    storage.embedding_model_dirty = False
+    storage.embedder = MagicMock()
+    storage.get_unit = AsyncMock(return_value=None)
+    storage.has_embedding = AsyncMock(return_value=True)
+    storage.upsert_unit = AsyncMock()
+    storage.delete_stale_units = AsyncMock()
+    parser = MagicMock()
+    parser.distill_file = AsyncMock(return_value=[])
+    intel = MagicMock()
+
+    async def slow_sync(*args, **kwargs):
+        await asyncio.sleep(0.01)
+
+    paths = [f"f{i}.py" for i in range(3)]
+    with patch("code_rag.services.indexing.sync_file", new=slow_sync):
+        failures = await asyncio.wait_for(
+            sync_project(storage, parser, intel, paths, max_concurrency=8),
+            timeout=2.0,
+        )
+    assert failures == []
 
 
 @pytest.mark.asyncio
@@ -64,63 +88,102 @@ async def test_run_sync_partial_failure_keeps_discovered_count(tmp_path):
     (tmp_path / "a.py").write_text("x = 1\n")
     (tmp_path / "b.py").write_text("y = 2\n")
     failed = str(tmp_path / "a.py")
-    manager = _manager_mock(failures=[(failed, "timeout")])
-    result = await run_sync(
-        manager, root=tmp_path, path=str(tmp_path), index_all=False, force=False
-    )
+    storage, parser, intel = _stack_mock()
+    with patch(
+        "code_rag.services.sync.sync_project",
+        new=AsyncMock(return_value=[(failed, "timeout")]),
+    ) as mock_sp:
+        result = await run_sync(
+            storage,
+            parser,
+            intel,
+            root=tmp_path,
+            path=str(tmp_path),
+            index_all=False,
+            force=False,
+        )
     assert result.status == "error"
     assert result.indexed_files == 2
     assert result.errors == [SyncFileError(file=failed, message="timeout")]
-    manager.sync_project.assert_awaited_once()
+    mock_sp.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_run_sync_single_file_failure_does_not_raise(tmp_path):
     target = tmp_path / "solo.py"
     target.write_text("x = 1\n")
-    manager = _manager_mock(failures=[(str(target), "boom")])
-    result = await run_sync(
-        manager, root=tmp_path, path=str(target), index_all=False, force=False
-    )
+    storage, parser, intel = _stack_mock()
+    with patch(
+        "code_rag.services.sync.sync_project",
+        new=AsyncMock(return_value=[(str(target), "boom")]),
+    ):
+        result = await run_sync(
+            storage,
+            parser,
+            intel,
+            root=tmp_path,
+            path=str(target),
+            index_all=False,
+            force=False,
+        )
     assert result.status == "error"
     assert result.indexed_files == 1
     assert result.errors[0].file == str(target)
     assert result.errors[0].message == "boom"
-    manager.sync_file.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_run_rebuild_uses_same_error_status(tmp_path):
     (tmp_path / "a.py").write_text("x = 1\n")
-    manager = _manager_mock(failures=[(str(tmp_path / "a.py"), "embed fail")])
-    result = await run_rebuild(manager, root=tmp_path)
+    storage, parser, intel = _stack_mock()
+    with patch(
+        "code_rag.services.sync.sync_project",
+        new=AsyncMock(return_value=[(str(tmp_path / "a.py"), "embed fail")]),
+    ) as mock_sp:
+        result = await run_rebuild(storage, parser, intel, root=tmp_path)
     assert result.status == "error"
     assert result.indexed_files == 1
-    manager.sync_project.assert_awaited_once()
-    assert manager.sync_project.await_args.kwargs["index_all"] is True
-    assert manager.sync_project.await_args.kwargs["force_distill"] is True
+    mock_sp.assert_awaited_once()
+    assert mock_sp.await_args.kwargs["index_all"] is True
+    assert mock_sp.await_args.kwargs["force_distill"] is True
 
 
 @pytest.mark.asyncio
 async def test_run_sync_all_with_no_files_still_calls_sync_project(tmp_path):
-    manager = _manager_mock()
-    result = await run_sync(
-        manager, root=tmp_path, path=None, index_all=True, force=False
-    )
-    manager.sync_project.assert_awaited_once()
-    assert manager.sync_project.await_args.args[0] == []
-    assert manager.sync_project.await_args.kwargs["index_all"] is True
+    storage, parser, intel = _stack_mock()
+    with patch(
+        "code_rag.services.sync.sync_project", new=AsyncMock(return_value=[])
+    ) as mock_sp:
+        result = await run_sync(
+            storage,
+            parser,
+            intel,
+            root=tmp_path,
+            path=None,
+            index_all=True,
+            force=False,
+        )
+    mock_sp.assert_awaited_once()
+    assert mock_sp.await_args.args[3] == []
+    assert mock_sp.await_args.kwargs["index_all"] is True
     assert result.status == "success"
     assert result.indexed_files == 0
 
 
 @pytest.mark.asyncio
 async def test_run_sync_empty_dir_without_all_skips_sync_project(tmp_path):
-    manager = _manager_mock()
-    result = await run_sync(
-        manager, root=tmp_path, path=str(tmp_path), index_all=False, force=False
-    )
-    manager.sync_project.assert_not_called()
+    storage, parser, intel = _stack_mock()
+    with patch("code_rag.services.sync.sync_project", new=AsyncMock()) as mock_sp:
+        result = await run_sync(
+            storage,
+            parser,
+            intel,
+            root=tmp_path,
+            path=str(tmp_path),
+            index_all=False,
+            force=False,
+        )
+    mock_sp.assert_not_called()
     assert result.status == "success"
     assert result.indexed_files == 0
 
