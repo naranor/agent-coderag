@@ -57,7 +57,7 @@ def test_json_show_is_flat_additive():
             sys.stdout = old
     assert "embedding" not in data or not isinstance(data.get("embedding"), dict)
     assert data["embedding_base"] == "http://e"
-    assert data["model"] == "auto"
+    assert data["model"] is None
 
 
 def test_embedding_flags_write_without_distiller_flags():

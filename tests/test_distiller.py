@@ -13,17 +13,20 @@ class TestDistillerConfig:
             "code_rag.intelligence.distiller.get_global_dir", return_value=tmp_path
         ):
             config = DistillerConfig.load()
-        assert config.model == "auto"
-        assert config.provider == "openai"
+        assert config.model is None
+        assert config.provider is None
+        assert config.api_base is None
+        assert not config.is_llm_configured()
 
     def test_config_defaults(self):
-        """Test default config values."""
+        """Test default config values — no implicit LLM endpoint."""
         config = DistillerConfig()
-        assert config.model == "auto"
-        assert config.api_base == "http://localhost:8081/api/v1"
+        assert config.model is None
+        assert config.api_base is None
         assert config.api_key is None
-        assert config.provider == "openai"
+        assert config.provider is None
         assert config.temperature == 0.0
+        assert not config.is_llm_configured()
 
     def test_config_custom_values(self):
         """Test custom config values."""
@@ -37,6 +40,14 @@ class TestDistillerConfig:
         assert config.model == "gpt-4"
         assert config.api_base == "https://api.openai.com/v1"
         assert config.temperature == 0.5
+        assert config.is_llm_configured()
+
+    def test_blank_llm_fields_become_none(self):
+        config = DistillerConfig(model="  ", api_base="", provider="openai")
+        assert config.model is None
+        assert config.api_base is None
+        assert config.provider == "openai"
+        assert not config.is_llm_configured()
 
     def test_config_model_dump(self):
         """Test config serialization."""
@@ -56,9 +67,24 @@ class TestDistiller:
         assert distiller.config == config
 
     @pytest.mark.asyncio
+    async def test_summarize_skips_llm_when_unconfigured(self):
+        """Offline mode: no LiteLLM call without explicit LLM config."""
+        config = DistillerConfig()
+        distiller = Distiller(config)
+
+        with patch("code_rag.intelligence.distiller.litellm.acompletion") as mock_comp:
+            result = await distiller.summarize("def test(): pass", "test_func")
+            assert result == ""
+            mock_comp.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_summarize_success(self):
         """Test successful summarization."""
-        config = DistillerConfig(model="gpt-4", provider="openai")
+        config = DistillerConfig(
+            model="gpt-4",
+            provider="openai",
+            api_base="https://api.openai.com/v1",
+        )
         distiller = Distiller(config)
 
         with patch("code_rag.intelligence.distiller.litellm.acompletion") as mock_comp:
@@ -70,11 +96,16 @@ class TestDistiller:
 
             result = await distiller.summarize("def test(): pass", "test_func")
             assert result == "Test summary."
+            mock_comp.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_summarize_with_ollama_provider(self):
         """Test summarization with Ollama provider."""
-        config = DistillerConfig(model="llama3", provider="ollama")
+        config = DistillerConfig(
+            model="llama3",
+            provider="ollama",
+            api_base="http://localhost:11434",
+        )
         distiller = Distiller(config)
 
         with patch("code_rag.intelligence.distiller.litellm.acompletion") as mock_comp:
@@ -87,19 +118,3 @@ class TestDistiller:
             await distiller.summarize("def foo(): pass", "foo")
             call_kwargs = mock_comp.call_args.kwargs
             assert call_kwargs["model"] == "ollama/llama3"
-
-    @pytest.mark.asyncio
-    async def test_summarize_empty_code(self):
-        """Test summarization with empty code."""
-        config = DistillerConfig()
-        distiller = Distiller(config)
-
-        with patch("code_rag.intelligence.distiller.litellm.acompletion") as mock_comp:
-            mock_response = MagicMock()
-            mock_response.choices = [
-                MagicMock(message=MagicMock(content="Empty summary."))
-            ]
-            mock_comp.return_value = mock_response
-
-            await distiller.summarize("", "empty_func")
-            assert "empty_func" in mock_comp.call_args.kwargs["messages"][0]["content"]

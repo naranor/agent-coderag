@@ -38,7 +38,7 @@ def test_model_dump_is_flat_additive():
     assert "embedding" not in dump or not isinstance(dump.get("embedding"), dict)
     assert dump["embedding_base"] == "http://e"
     assert dump["embedding_model"] == "emb"
-    assert dump["model"] == "auto"
+    assert dump["model"] is None
 
 
 def test_config_url_only_does_not_wipe_embedding_fields(tmp_path):
@@ -165,7 +165,7 @@ def test_load_invalid_json_falls_back_to_defaults(tmp_path):
         "code_rag.intelligence.distiller.get_global_dir", return_value=global_dir
     ):
         cfg = DistillerConfig.load()
-    assert cfg.model == "auto"
+    assert cfg.model is None
     assert cfg.embedding_base is None
 
 

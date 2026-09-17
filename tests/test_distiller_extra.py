@@ -8,7 +8,12 @@ class TestDistillerExtra:
 
     @pytest.mark.asyncio
     async def test_summarize_error_handling(self):
-        config = DistillerConfig(api_key="test", model="test")
+        config = DistillerConfig(
+            api_key="test",
+            model="test",
+            provider="openai",
+            api_base="http://localhost:8081/v1",
+        )
         distiller = Distiller(config)
 
         # Match litellm error behavior
@@ -18,10 +23,9 @@ class TestDistillerExtra:
             assert "Connection error" in str(exc.value)
 
     def test_config_load_file_not_found(self, tmp_path):
-        # Patch the global os module instead of trying to find it in distiller
         with patch(
-            "os.path.exists",
-            side_effect=lambda p: False if "distiller_config.json" in str(p) else True,
+            "code_rag.intelligence.distiller.get_global_dir", return_value=tmp_path
         ):
             config = DistillerConfig.load()
-            assert config.provider == "openai"  # default
+            assert config.provider is None
+            assert not config.is_llm_configured()

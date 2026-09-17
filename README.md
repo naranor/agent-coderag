@@ -64,7 +64,7 @@ agent-coderag setup
 agent-coderag config --url "http://localhost:11434" --provider "ollama" --model "qwen2.5-coder"
 
 # Using OpenAI-compatible API (e.g. Groq, OpenRouter, DeepSeek)
-agent-coderag config --url "https://api.deepseek.com" --key "your-api-key" --model "deepseek-chat"
+agent-coderag config --url "https://api.deepseek.com" --provider "openai" --key "your-api-key" --model "deepseek-chat"
 ```
 
 ### Offline Mode (No Provider)
