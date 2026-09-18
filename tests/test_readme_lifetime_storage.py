@@ -26,10 +26,10 @@ def test_security_documents_db_resolve_chain():
     assert ".code_rag.db" not in content
 
 
-def test_changelog_unreleased_documents_14_breaking():
+def test_changelog_14_documents_breaking():
     content = Path("CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = content.split("## [Unreleased]")[1].split("## [1.3.5]")[0]
-    assert "### Breaking" in unreleased
-    assert "default_db_path" in unreleased
-    assert "STORAGE_BUSY" in unreleased
-    assert "agent-coderag<1.4" in unreleased
+    section = content.split("## [1.4.0]")[1].split("## [1.3.5]")[0]
+    assert "### Breaking" in section
+    assert "default_db_path" in section
+    assert "STORAGE_BUSY" in section
+    assert "agent-coderag<1.4" in section

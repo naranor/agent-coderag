@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-18
+
 ### Breaking
 - **Pin before upgrading:** 1.4.0 changes library storage semantics. Use `agent-coderag<1.4` until you migrate callers and scripts.
 - Removed `CodeRAGManager` and `code_rag.core.manager`; use-cases live in `code_rag.services.indexing`, `dependencies`, `search`, and `sync`.
