@@ -1,6 +1,8 @@
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
-from code_rag.core.manager import CodeRAGManager
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from code_rag.services.dependencies import _sync_gradle, _sync_maven
+from code_rag.services.indexing import IndexStack, sync_file, sync_project
 from tests.embedder_stubs import StubEmbedder
 
 
@@ -35,16 +37,11 @@ def mock_intelligence():
     return intel
 
 
-@pytest.fixture
-def manager(mock_storage, mock_parser, mock_intelligence):
-    return CodeRAGManager(mock_storage, mock_parser, mock_intelligence)
-
-
-class TestManagerExtra:
-    """Extra tests to fill remaining coverage in manager.py."""
+class TestIndexingExtra:
+    """Extra tests for indexing and dependency helpers."""
 
     @pytest.mark.asyncio
-    async def test_sync_maven_failed_process(self, manager, tmp_path):
+    async def test_sync_maven_failed_process(self, mock_storage, tmp_path):
         """Test Maven sync handles non-zero return code."""
         (tmp_path / "pom.xml").write_text("<project/>")
         with patch("shutil.which", return_value="mvn"), patch(
@@ -55,11 +52,10 @@ class TestManagerExtra:
             mock_proc.communicate.return_value = (b"", b"error logs")
             mock_exec.return_value = mock_proc
 
-            await manager._sync_maven(tmp_path)
-            # Should not crash, just log error
+            await _sync_maven(mock_storage, tmp_path)
 
     @pytest.mark.asyncio
-    async def test_sync_gradle_failed_process(self, manager, tmp_path):
+    async def test_sync_gradle_failed_process(self, mock_storage, tmp_path):
         """Test Gradle sync handles non-zero return code."""
         (tmp_path / "build.gradle").touch()
         with patch("shutil.which", return_value="gradle"), patch(
@@ -70,17 +66,23 @@ class TestManagerExtra:
             mock_proc.communicate.return_value = (b"", b"gradle error")
             mock_exec.return_value = mock_proc
 
-            await manager._sync_gradle(tmp_path)
+            await _sync_gradle(mock_storage, tmp_path)
 
     @pytest.mark.asyncio
-    async def test_sync_file_exception(self, manager, mock_parser):
+    async def test_sync_file_exception(
+        self, mock_storage, mock_parser, mock_intelligence
+    ):
         """Test sync_file handles parser exceptions."""
         mock_parser.distill_file.side_effect = Exception("Parser error")
         with pytest.raises(Exception):
-            await manager.sync_file("broken.py")
+            await sync_file(
+                IndexStack(mock_storage, mock_parser, mock_intelligence), "broken.py"
+            )
 
     @pytest.mark.asyncio
-    async def test_sync_project_worker_exception(self, manager, mock_parser):
+    async def test_sync_project_worker_exception(
+        self, mock_storage, mock_parser, mock_intelligence
+    ):
         """Test worker handles individual file exceptions without crashing pool."""
 
         async def distill(path):
@@ -89,7 +91,9 @@ class TestManagerExtra:
             return []
 
         mock_parser.distill_file.side_effect = distill
-        failures = await manager.sync_project(["f1.py", "f2.py"])
-        # Should complete both
+        failures = await sync_project(
+            IndexStack(mock_storage, mock_parser, mock_intelligence),
+            ["f1.py", "f2.py"],
+        )
         assert mock_parser.distill_file.call_count == 2
         assert failures == [("f1.py", "F1 error")]

@@ -1,0 +1,7 @@
+from enum import Enum
+
+
+class ErrorCode(str, Enum):
+    STORAGE_BUSY = "STORAGE_BUSY"
+    STORAGE_CORRUPT = "STORAGE_CORRUPT"
+    EMBEDDING_MISMATCH = "EMBEDDING_MISMATCH"

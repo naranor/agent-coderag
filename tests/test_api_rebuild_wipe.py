@@ -5,34 +5,45 @@ import pytest
 
 from code_rag.api.client import CodeRAG
 from code_rag.api.models import ApiReport, SyncResult
-from code_rag.core.manager import CodeRAGManager
-from code_rag.core.models import KnowledgeUnit, UnitKind
-from code_rag.storage.duckdb_impl import DuckDBStorage
+from code_rag.intelligence.distiller import DistillerConfig
+from code_rag.storage.db_connection import AccessMode
 from tests.embedder_stubs import StubEmbedder
 
 
 @pytest.mark.asyncio
-async def test_rebuild_closes_cached_manager_and_opens_wipe():
-    first = MagicMock()
-    first.close = AsyncMock()
-    second = MagicMock()
-    second.close = AsyncMock()
-    create = AsyncMock(side_effect=[second])
-    with patch("code_rag.api.client.create_manager", new=create), patch(
-        "code_rag.api.client.run_rebuild",
-        new=AsyncMock(return_value=SyncResult(status="success", indexed_files=1)),
-    ) as mock_rebuild:
-        rag = CodeRAG(db="proj.db")
-        rag._manager = first
-        await rag.rebuild()
-    first.close.assert_awaited()
-    assert create.await_args.kwargs.get("wipe") is True or (
-        len(create.await_args.args) >= 1
-        and create.call_args_list[-1].kwargs.get("wipe") is True
+async def test_rebuild_opens_once_with_wipe(tmp_path, monkeypatch):
+    opens: list[dict] = []
+    embedder = StubEmbedder(dim=8)
+    storage = MagicMock()
+    storage.close = AsyncMock()
+
+    async def tracking_open(
+        path, emb, *, mode, connect_timeout_seconds=5.0, wipe=False
+    ):
+        opens.append({"mode": mode, "wipe": wipe, "emb": emb})
+        return storage
+
+    monkeypatch.setattr(
+        "code_rag.api.client.create_stack",
+        AsyncMock(return_value=(embedder, MagicMock(), MagicMock())),
     )
-    mock_rebuild.assert_awaited_once()
-    assert mock_rebuild.await_args.args[0] is second
-    assert rag._manager is second
+    monkeypatch.setattr("code_rag.api.client.open_db_connection", tracking_open)
+    monkeypatch.setattr(
+        "code_rag.api.client.run_rebuild",
+        AsyncMock(return_value=SyncResult(status="success", indexed_files=1)),
+    )
+
+    rag = CodeRAG(db=str(tmp_path / "proj.db"), root=tmp_path)
+    try:
+        await rag.rebuild()
+    finally:
+        await rag.close()
+
+    assert len(opens) == 1
+    assert opens[0]["wipe"] is True
+    assert opens[0]["mode"] is AccessMode.READ_WRITE
+    assert opens[0]["emb"] is embedder
+    storage.close.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -56,116 +67,121 @@ async def test_config_forwards_embedding_kwargs():
 
 
 @pytest.mark.asyncio
-async def test_search_awaits_create_manager():
-    manager = MagicMock()
-    manager.search = AsyncMock(return_value=[])
-    manager.close = AsyncMock()
-    with patch(
-        "code_rag.api.client.create_manager", new=AsyncMock(return_value=manager)
+async def test_search_uses_read_only_connection(tmp_path, monkeypatch):
+    opens: list[AccessMode] = []
+    storage = MagicMock()
+    storage.close = AsyncMock()
+    embedder = StubEmbedder(dim=8)
+
+    async def tracking_open(
+        path, emb, *, mode, connect_timeout_seconds=5.0, wipe=False
     ):
-        async with CodeRAG() as rag:
-            await rag.search("q", limit=3)
-    manager.search.assert_awaited_once_with("q", limit=3)
+        opens.append(mode)
+        return storage
+
+    monkeypatch.setattr(
+        "code_rag.api.client.create_stack",
+        AsyncMock(return_value=(embedder, MagicMock(), MagicMock())),
+    )
+    monkeypatch.setattr("code_rag.api.client.open_db_connection", tracking_open)
+    monkeypatch.setattr("code_rag.api.client.run_search", AsyncMock(return_value=[]))
+
+    async with CodeRAG(db=str(tmp_path / "p.db"), root=tmp_path) as rag:
+        await rag.search("q", limit=3)
+
+    assert opens == [AccessMode.READ_ONLY]
 
 
 @pytest.mark.asyncio
-async def test_live_rebuild_wipes_embeddings_table(tmp_path):
+async def test_live_rebuild_wipes_embeddings_table(tmp_path, monkeypatch):
     db = str(tmp_path / "p.db")
+    (tmp_path / "f.py").write_text("def n(): pass\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "code_rag.intelligence.distiller.Distiller.summarize",
+        AsyncMock(return_value="s"),
+    )
+    monkeypatch.setattr(
+        "code_rag.services.factory.DistillerConfig.load",
+        lambda: DistillerConfig(),
+    )
 
-    async def factory(db_path, onnx=None, allow_build_execution=False, wipe=False):
-        if wipe:
-            embedder = StubEmbedder(dim=8, model_id="narrow")
-        else:
-            embedder = StubEmbedder(dim=16, model_id="wide")
-        storage = await DuckDBStorage.open(db_path, embedder, wipe=wipe)
-        parser = MagicMock()
-        parser.distill_file = AsyncMock(
-            return_value=[
-                KnowledgeUnit(
-                    id="u1",
-                    kind=UnitKind.FUNCTION,
-                    name="n",
-                    path="f.py",
-                    code_hash="h",
-                    metadata={"raw_code": "def n(): pass"},
-                )
-            ]
-        )
-        distiller = MagicMock()
-        distiller.summarize = AsyncMock(return_value="s")
-        distiller.close = MagicMock()
-        return CodeRAGManager(storage, parser, distiller)
-
-    with patch("code_rag.api.client.create_manager", new=factory):
-        rag = CodeRAG(db=db, root=tmp_path)
-        (tmp_path / "f.py").write_text("def n(): pass\n", encoding="utf-8")
+    wide = StubEmbedder(dim=16, model_id="wide")
+    monkeypatch.setattr(
+        "code_rag.services.factory.create_embedder",
+        AsyncMock(return_value=wide),
+    )
+    rag = CodeRAG(db=db, root=tmp_path)
+    try:
         await rag.sync(path=str(tmp_path / "f.py"))
-        wide = duckdb.connect(db)
-        typ = [
-            r[1]
-            for r in wide.execute("DESCRIBE unit_embeddings").fetchall()
-            if r[0] == "vec"
-        ][0]
-        wide.close()
-        assert "16" in str(typ)
-        await rag.rebuild()
-        narrow = duckdb.connect(db)
-        typ = [
-            r[1]
-            for r in narrow.execute("DESCRIBE unit_embeddings").fetchall()
-            if r[0] == "vec"
-        ][0]
-        narrow.close()
-        assert "8" in str(typ)
+    finally:
         await rag.close()
 
+    wide_conn = duckdb.connect(db)
+    typ = [
+        row[1]
+        for row in wide_conn.execute("DESCRIBE unit_embeddings").fetchall()
+        if row[0] == "vec"
+    ][0]
+    wide_conn.close()
+    assert "16" in str(typ)
 
-@pytest.mark.asyncio
-async def test_ensure_manager_wipe_closes_cached_manager():
-    first = MagicMock()
-    first.close = AsyncMock()
-    second = MagicMock()
-    with patch(
-        "code_rag.api.client.create_manager", new=AsyncMock(return_value=second)
-    ) as create:
-        rag = CodeRAG(db="proj.db")
-        rag._manager = first
-        out = await rag._ensure_manager(wipe=True)
-    first.close.assert_awaited()
-    assert out is second
-    assert rag._manager is second
-    assert create.await_args.kwargs.get("wipe") is True
+    narrow = StubEmbedder(dim=8, model_id="narrow")
+    monkeypatch.setattr(
+        "code_rag.services.factory.create_embedder",
+        AsyncMock(return_value=narrow),
+    )
+    rag2 = CodeRAG(db=db, root=tmp_path)
+    try:
+        await rag2.rebuild()
+    finally:
+        await rag2.close()
+
+    narrow_conn = duckdb.connect(db)
+    typ = [
+        row[1]
+        for row in narrow_conn.execute("DESCRIBE unit_embeddings").fetchall()
+        if row[0] == "vec"
+    ][0]
+    narrow_conn.close()
+    assert "8" in str(typ)
 
 
 @pytest.mark.asyncio
 async def test_api_forwards_lang():
-    manager = MagicMock()
-    manager.close = AsyncMock()
     report = ApiReport(library="lib", language="python", report="ok")
+    storage = MagicMock()
+    storage.close = AsyncMock()
+    embedder = MagicMock()
+    embedder.close = AsyncMock()
     with patch(
-        "code_rag.api.client.create_manager", new=AsyncMock(return_value=manager)
+        "code_rag.api.client.create_stack",
+        new=AsyncMock(return_value=(embedder, MagicMock(), MagicMock())),
+    ), patch(
+        "code_rag.api.client.open_db_connection",
+        new=AsyncMock(return_value=storage),
     ), patch(
         "code_rag.api.client.run_api", new=AsyncMock(return_value=report)
     ) as mock_api:
         rag = CodeRAG()
         out = await rag.api("lib", lang=None)
+        await rag.close()
     assert out is report
     mock_api.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_close_without_manager_is_noop():
+async def test_close_without_stack_is_noop():
     rag = CodeRAG()
     await rag.close()
-    assert rag._manager is None
+    assert rag._embedder is None
+    assert rag._storage is None
 
 
 @pytest.mark.asyncio
-async def test_ensure_manager_reuses_existing():
-    first = MagicMock()
-    with patch("code_rag.api.client.create_manager") as create:
-        rag = CodeRAG(db="proj.db")
-        rag._manager = first
-        out = await rag._ensure_manager()
-    create.assert_not_called()
-    assert out is first
+async def test_close_closes_stray_storage():
+    storage = AsyncMock()
+    rag = CodeRAG(db=None, root=None)
+    rag._storage = storage
+    await rag.close()
+    storage.close.assert_awaited_once()
+    assert rag._storage is None

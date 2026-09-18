@@ -4,7 +4,9 @@ from io import StringIO
 from unittest.mock import MagicMock, patch, AsyncMock
 import argparse
 
+from code_rag.core.models import KnowledgeUnit, UnitKind
 from code_rag.entry import cli
+from tests.fake_coderag import fake_coderag_class
 
 
 class TestCLIHelpers:
@@ -35,20 +37,6 @@ class TestCLIHelpers:
         assert cli.should_index(Path(".git/config"), spec) is False
         assert cli.should_index(Path("node_modules/pkg/index.js"), spec) is False
 
-    @pytest.mark.asyncio
-    async def test_get_manager_init(self):
-        """Test get_manager delegates to create_manager."""
-        sentinel = MagicMock()
-        with patch(
-            "code_rag.entry.cli.create_manager", new=AsyncMock(return_value=sentinel)
-        ) as mock_cm, patch.object(cli, "Embedder") as mock_embedder:
-            out = await cli.get_manager("test.db")
-        assert out is sentinel
-        mock_cm.assert_awaited_once_with(
-            "test.db", None, allow_build_execution=False, wipe=False
-        )
-        mock_embedder.assert_not_called()
-
 
 class TestCLISync:
     """Tests for sync command."""
@@ -56,14 +44,8 @@ class TestCLISync:
     @pytest.mark.asyncio
     async def test_sync_cmd_with_json(self, tmp_path):
         """Test sync command with JSON output."""
-        mock_manager = MagicMock()
-        mock_manager.sync_project = AsyncMock(return_value=[])
-        mock_manager.sync_dependencies = AsyncMock()
-        mock_manager.close = AsyncMock()
-
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ):
+        fake_cls, _ = fake_coderag_class()
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db=str(tmp_path / "test.db"),
                 onnx=None,
@@ -84,15 +66,9 @@ class TestCLISync:
 
     @pytest.mark.asyncio
     async def test_sync_cmd_propagates_build_execution_flag(self, tmp_path):
-        """Test the --allow-build-execution opt-in reaches the manager."""
-        mock_manager = MagicMock()
-        mock_manager.sync_project = AsyncMock(return_value=[])
-        mock_manager.sync_dependencies = AsyncMock()
-        mock_manager.close = AsyncMock()
-
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ) as mock_get_manager:
+        """Test the --allow-build-execution opt-in reaches CodeRAG."""
+        fake_cls, instances = fake_coderag_class()
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db=str(tmp_path / "test.db"),
                 onnx=None,
@@ -106,23 +82,16 @@ class TestCLISync:
 
             await cli.sync_cmd(args)
 
-            assert mock_get_manager.call_args.kwargs["allow_build_execution"] is True
+            assert instances[0].init_kwargs["allow_build_execution"] is True
 
     @pytest.mark.asyncio
     async def test_sync_cmd_file(self, tmp_path):
         """Test sync command for a single file."""
-        mock_manager = MagicMock()
-        mock_manager.sync_file = AsyncMock()
-        mock_manager.sync_project = AsyncMock(return_value=[])
-        mock_manager.sync_dependencies = AsyncMock()
-        mock_manager.close = AsyncMock()
-
+        fake_cls, instances = fake_coderag_class()
         test_file = tmp_path / "test.py"
         test_file.write_text("def test(): pass")
 
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ):
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db=str(tmp_path / "test.db"),
                 onnx=None,
@@ -135,10 +104,10 @@ class TestCLISync:
 
             await cli.sync_cmd(args)
 
-            mock_manager.sync_project.assert_awaited_once()
-            assert mock_manager.sync_project.await_args.args[0] == [
-                str(test_file.resolve())
-            ]
+            instances[0].sync.assert_awaited_once()
+            assert instances[0].sync.await_args.kwargs["path"] == str(
+                test_file.resolve()
+            )
 
 
 class TestCLISearch:
@@ -147,26 +116,22 @@ class TestCLISearch:
     @pytest.mark.asyncio
     async def test_search_cmd_with_results(self):
         """Test search with results."""
-        from code_rag.core.models import KnowledgeUnit, UnitKind
-
-        mock_manager = MagicMock()
-        mock_manager.search = AsyncMock(
-            return_value=[
-                KnowledgeUnit(
-                    id="test.py:test",
-                    kind=UnitKind.FUNCTION,
-                    name="test",
-                    path="test.py",
-                    summary="Test function",
-                    code_hash="abc123",
-                )
-            ]
+        fake_cls, _ = fake_coderag_class(
+            search=AsyncMock(
+                return_value=[
+                    KnowledgeUnit(
+                        id="test.py:test",
+                        kind=UnitKind.FUNCTION,
+                        name="test",
+                        path="test.py",
+                        summary="Test function",
+                        code_hash="abc123",
+                    )
+                ]
+            )
         )
-        mock_manager.close = AsyncMock()
 
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ):
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -187,13 +152,8 @@ class TestCLISearch:
     @pytest.mark.asyncio
     async def test_search_cmd_no_results(self):
         """Test search with no results."""
-        mock_manager = MagicMock()
-        mock_manager.search = AsyncMock(return_value=[])
-        mock_manager.close = AsyncMock()
-
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ):
+        fake_cls, _ = fake_coderag_class()
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db="test.db",
                 onnx=None,
@@ -214,26 +174,22 @@ class TestCLISearch:
     @pytest.mark.asyncio
     async def test_search_cmd_json_output(self):
         """Test search with JSON output."""
-        from code_rag.core.models import KnowledgeUnit, UnitKind
-
-        mock_manager = MagicMock()
-        mock_manager.search = AsyncMock(
-            return_value=[
-                KnowledgeUnit(
-                    id="test.py:test",
-                    kind=UnitKind.FUNCTION,
-                    name="test",
-                    path="test.py",
-                    summary="Test function",
-                    code_hash="abc123",
-                )
-            ]
+        fake_cls, _ = fake_coderag_class(
+            search=AsyncMock(
+                return_value=[
+                    KnowledgeUnit(
+                        id="test.py:test",
+                        kind=UnitKind.FUNCTION,
+                        name="test",
+                        path="test.py",
+                        summary="Test function",
+                        code_hash="abc123",
+                    )
+                ]
+            )
         )
-        mock_manager.close = AsyncMock()
 
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ):
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 db="test.db", onnx=None, verbose=False, json=True, query="test", limit=5
             )
@@ -253,13 +209,8 @@ class TestCLIApi:
     @pytest.mark.asyncio
     async def test_api_cmd_success(self):
         """Test API discovery command."""
-        mock_manager = MagicMock()
-        mock_manager.discovery.extract_api = AsyncMock(return_value="Public API...")
-        mock_manager.close = AsyncMock()
-
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ):
+        fake_cls, _ = fake_coderag_class()
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 library="pydantic",
                 json=False,
@@ -280,13 +231,8 @@ class TestCLIApi:
     @pytest.mark.asyncio
     async def test_api_cmd_json(self):
         """Test API command with JSON output."""
-        mock_manager = MagicMock()
-        mock_manager.discovery.extract_api = AsyncMock(return_value="Public API...")
-        mock_manager.close = AsyncMock()
-
-        with patch(
-            "code_rag.entry.cli.get_manager", new=AsyncMock(return_value=mock_manager)
-        ):
+        fake_cls, _ = fake_coderag_class()
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
             args = argparse.Namespace(
                 library="requests",
                 json=True,

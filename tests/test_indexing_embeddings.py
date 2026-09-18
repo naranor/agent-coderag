@@ -3,9 +3,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from code_rag.core.constants import EMBEDDING_BATCH_SIZE
+from code_rag.core.error_codes import ErrorCode
 from code_rag.core.exceptions import IntelligenceError, StorageError
-from code_rag.core.manager import CodeRAGManager, unit_embedding_text
 from code_rag.core.models import KnowledgeUnit, UnitKind
+from code_rag.services.indexing import (
+    IndexStack,
+    sync_file,
+    sync_project,
+    unit_embedding_text,
+)
 from tests.embedder_stubs import StubEmbedder
 
 
@@ -22,14 +28,14 @@ def _unit(**kwargs):
     return KnowledgeUnit(**data)
 
 
-def _manager(storage, parser=None, intel=None):
+def _stack(storage, parser=None, intel=None):
     if parser is None:
         parser = MagicMock()
         parser.distill_file = AsyncMock(return_value=[])
     if intel is None:
         intel = MagicMock()
         intel.summarize = AsyncMock(return_value="sum")
-    return CodeRAGManager(storage, parser, intel)
+    return IndexStack(storage, parser, intel)
 
 
 def test_unit_embedding_text_fallback():
@@ -51,8 +57,8 @@ async def test_skip_reembed_when_hash_summary_and_row_unchanged():
     parser = MagicMock()
     incoming = _unit(metadata={"raw_code": "def n(): pass"})
     parser.distill_file = AsyncMock(return_value=[incoming])
-    manager = _manager(storage, parser=parser)
-    await manager.sync_file("f.py")
+    stack = _stack(storage, parser=parser)
+    await sync_file(stack, "f.py")
     storage.upsert_unit.assert_awaited()
     kwargs = storage.upsert_unit.await_args
     assert kwargs.args[0].id == "u1"
@@ -81,8 +87,8 @@ async def test_reembed_on_hash_change_batches():
     parser.distill_file = AsyncMock(return_value=units)
     intel = MagicMock()
     intel.summarize = AsyncMock(return_value="sum")
-    manager = _manager(storage, parser=parser, intel=intel)
-    await manager.sync_file("f.py")
+    stack = _stack(storage, parser=parser, intel=intel)
+    await sync_file(stack, "f.py")
     assert len(stub.aembed_calls) == 2
     assert len(stub.aembed_calls[0]) == EMBEDDING_BATCH_SIZE
     assert len(stub.aembed_calls[1]) == 1
@@ -98,9 +104,9 @@ async def test_incremental_dirty_raises_storage_error():
     storage = MagicMock()
     storage.embedding_model_dirty = True
     storage.embedder = StubEmbedder()
-    manager = _manager(storage)
+    stack = _stack(storage)
     with pytest.raises(StorageError, match="sync --all"):
-        await manager.sync_file("f.py")
+        await sync_file(stack, "f.py")
 
 
 @pytest.mark.asyncio
@@ -109,9 +115,9 @@ async def test_sync_project_dirty_without_index_all_raises():
     storage.embedding_model_dirty = True
     storage.embedder = StubEmbedder()
     storage.list_units = AsyncMock()
-    manager = _manager(storage)
+    stack = _stack(storage)
     with pytest.raises(StorageError, match="sync --all"):
-        await manager.sync_project(["src/a.py"])
+        await sync_project(stack, ["src/a.py"])
     storage.list_units.assert_not_called()
 
 
@@ -124,8 +130,8 @@ async def test_sync_project_empty_index_all_reembeds_dirty():
     storage.list_units = AsyncMock(return_value=[_unit(id="a", summary="sa")])
     storage.upsert_unit = AsyncMock()
     storage.mark_embedding_model_synced = AsyncMock()
-    manager = _manager(storage)
-    await manager.sync_project([], index_all=True)
+    stack = _stack(storage)
+    await sync_project(stack, [], index_all=True)
     storage.mark_embedding_model_synced.assert_awaited_once()
     assert stub.aembed_calls == [["sa"]]
     storage.upsert_unit.assert_awaited()
@@ -151,8 +157,8 @@ async def test_sync_project_dirty_reembeds_all_then_file_sync_skips():
     parser.distill_file = AsyncMock(
         return_value=[_unit(id="a", summary="sa", metadata={"raw_code": "x"})]
     )
-    manager = _manager(storage, parser=parser)
-    await manager.sync_project(["f.py"], index_all=True)
+    stack = _stack(storage, parser=parser)
+    await sync_project(stack, ["f.py"], index_all=True)
     storage.mark_embedding_model_synced.assert_awaited_once()
     assert stub.aembed_calls == [["sa", "sb"]]
     file_upserts = [
@@ -206,10 +212,32 @@ async def test_concurrent_sync_file_does_not_overlap_aembed():
         return [_unit(id=path, metadata={"raw_code": "x"})]
 
     parser.distill_file = AsyncMock(side_effect=distill)
-    manager = CodeRAGManager(storage, parser, intel)
     with patch("code_rag.intelligence.openai_embedder.litellm.aembedding", new=fake):
-        await manager.sync_project(["a.py", "b.py"])
+        await sync_project(IndexStack(storage, parser, intel), ["a.py", "b.py"])
     assert max_in_flight == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_file_propagates_embedding_mismatch_code():
+    storage = MagicMock()
+    storage.embedding_model_dirty = False
+    storage.embedder = StubEmbedder(dim=8)
+    storage.get_unit = AsyncMock(return_value=None)
+    storage.has_embedding = AsyncMock(return_value=False)
+    storage.upsert_unit = AsyncMock()
+    storage.delete_stale_units = AsyncMock()
+    storage.ensure_embeddings_bound = AsyncMock(
+        side_effect=StorageError(
+            "Embedding dimension mismatch (index=384, embedder=8). Run rebuild.",
+            code=ErrorCode.EMBEDDING_MISMATCH,
+        )
+    )
+    parser = MagicMock()
+    parser.distill_file = AsyncMock(return_value=[_unit(metadata={"raw_code": "x"})])
+    stack = _stack(storage, parser=parser)
+    with pytest.raises(StorageError, match="Run rebuild") as ei:
+        await sync_file(stack, "f.py")
+    assert ei.value.code is ErrorCode.EMBEDDING_MISMATCH
 
 
 @pytest.mark.asyncio
@@ -227,9 +255,9 @@ async def test_embed_and_upsert_count_mismatch():
     storage.delete_stale_units = AsyncMock()
     parser = MagicMock()
     parser.distill_file = AsyncMock(return_value=[_unit(metadata={"raw_code": "x"})])
-    manager = _manager(storage, parser=parser)
+    stack = _stack(storage, parser=parser)
     with pytest.raises(IntelligenceError, match="count mismatch"):
-        await manager.sync_file("f.py")
+        await sync_file(stack, "f.py")
 
 
 @pytest.mark.asyncio
@@ -248,8 +276,8 @@ async def test_sync_file_distills_when_summary_missing():
     )
     intel = MagicMock()
     intel.summarize = AsyncMock(return_value="filled")
-    manager = _manager(storage, parser=parser, intel=intel)
-    await manager.sync_file("f.py")
+    stack = _stack(storage, parser=parser, intel=intel)
+    await sync_file(stack, "f.py")
     intel.summarize.assert_awaited_once()
     stored = storage.upsert_unit.await_args.args[0]
     assert stored.summary == "filled"
@@ -271,7 +299,7 @@ async def test_sync_file_distill_failure_keeps_existing_summary():
     )
     intel = MagicMock()
     intel.summarize = AsyncMock(side_effect=RuntimeError("llm down"))
-    manager = _manager(storage, parser=parser, intel=intel)
-    await manager.sync_file("f.py")
+    stack = _stack(storage, parser=parser, intel=intel)
+    await sync_file(stack, "f.py")
     stored = storage.upsert_unit.await_args.args[0]
     assert stored.summary == "old"

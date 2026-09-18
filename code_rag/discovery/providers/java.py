@@ -10,6 +10,10 @@ from ...parsers.tree_sitter import TreeSitterParser
 logger = logging.getLogger(__name__)
 
 
+def _cached_jar_miss_message(library_name: str) -> str:
+    return f"Error: Could not find cached JAR for '{library_name}'. Run 'sync' first."
+
+
 class JavaDiscoveryProvider(IDiscoveryProvider):
     """API discovery for Java libraries using bytecode/source analysis."""
 
@@ -26,11 +30,11 @@ class JavaDiscoveryProvider(IDiscoveryProvider):
         Extracts Java API from a cached JAR file.
         """
         if not self.storage:
-            return "Error: Storage required for Java API discovery."
+            return _cached_jar_miss_message(library_name)
 
         jar_path = await self.storage.get_dependency_path(library_name)
         if not jar_path or not os.path.exists(jar_path):
-            return f"Error: Could not find cached JAR for '{library_name}'. Run 'sync' first."
+            return _cached_jar_miss_message(library_name)
 
         output = [f"# Public API for Java Library '{library_name}':"]
         try:

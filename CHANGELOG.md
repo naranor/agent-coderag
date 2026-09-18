@@ -1,5 +1,32 @@
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-18
+
+### Breaking
+- **Pin before upgrading:** 1.4.0 changes library storage semantics. Use `agent-coderag<1.4` until you migrate callers and scripts.
+- Removed `CodeRAGManager` and `code_rag.core.manager`; use-cases live in `code_rag.services.indexing`, `dependencies`, `search`, and `sync`.
+- Removed `create_manager` / `build_manager` from `code_rag.services.factory` (use `create_stack` or the public `CodeRAG` facade).
+- Removed `DuckDBStorage.open`; use `open_db_connection` from `code_rag.storage.db_connection` or the public `CodeRAG` facade.
+- **Default `db` is unset:** `CodeRAG()` and CLI omit `--db` by default (`None`), not a hard-coded `code_rag.db`. Resolution order: cwd `code_rag.db` if exists → `{root}/code_rag.db` if exists → `{root}/.coderag.db` (create on RW ops). Use `default_db_path(root)` to preview.
+- **New create default:** fresh projects get `{root}/.coderag.db` unless a legacy `code_rag.db` is found. Relative explicit `db=` resolves against process cwd, not `root`.
+- **Ephemeral DuckDB per op:** the index file is not held open between `search`/`sync`/`api` calls; embedder/parser/distiller stay warm until `close()`.
+- **Read-only search:** `search` opens read-only and does not create an empty database when the file is missing.
+- **`api()` lazy storage:** API discovery no longer implies a warm DB/embedder; DuckDB opens read-only only when a provider needs it (e.g. Java JAR cache).
+- **Serialized in-process ops:** overlapping tasks on one `CodeRAG` instance are queued (no parallel DB access in-process).
+- **Stable storage errors:** file-lock timeouts surface as `StorageBusyError` with `ErrorCode.STORAGE_BUSY` instead of raw `duckdb` exceptions. `CodeRAGError.code` uses public `ErrorCode` values (`STORAGE_CORRUPT`, `EMBEDDING_MISMATCH`, …).
+
+### Changed
+- Added `connect_timeout_seconds` (default `5`; CLI `--connect-timeout`). `0` disables busy-wait retries.
+- Exported `default_db_path`, `ErrorCode`, and `StorageBusyError` from the public package.
+- Documented DuckDB WAL sidecars beside the index file.
+
+### Fixed
+- Cross-process lock contention now retries until timeout, then fails with `STORAGE_BUSY`.
+- Corrupt metadata and embedding-dimension mismatches map to `STORAGE_CORRUPT` / `EMBEDDING_MISMATCH`.
+- Distiller no longer uses implicit LLM defaults (`model=auto`, `provider=openai`, localhost API). Without explicit `model` + `api_base` + `provider`, `summarize` skips LiteLLM (true offline distillation fallback).
+- CLI e2e isolates `LOCALAPPDATA` and `XDG_CACHE_HOME`, seeds MiniLM into the temp cache (or `CODERAG_E2E_ONNX`), and `pytest.skip`s with a clear message when no ONNX is available.
+- `CodeRAG.config()` invalidates the process embedder only when embedding fields change (`--clear-embedding` / embedding-*); distill-only updates refresh Distiller and keep the embedder.
+
 ## [1.3.5] - 2026-09-12
 
 ### Fixed

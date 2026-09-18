@@ -6,3 +6,4 @@ def test_readme_mentions_library_usage():
     assert "## Library Usage" in content
     assert "from code_rag import CodeRAG" in content
     assert "await rag.sync(index_all=True)" in content
+    assert "default_db_path" in content

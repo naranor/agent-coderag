@@ -1,7 +1,7 @@
 import pytest
 import pytest_asyncio
 import duckdb
-from code_rag.storage.duckdb_impl import DuckDBStorage
+from code_rag.storage.db_connection import AccessMode, open_db_connection
 from code_rag.core.models import KnowledgeUnit, UnitKind, Relation, RelationType
 from tests.embedder_stubs import StubEmbedder
 
@@ -9,7 +9,12 @@ from tests.embedder_stubs import StubEmbedder
 @pytest_asyncio.fixture
 async def storage(tmp_path):
     stub = StubEmbedder()
-    store = await DuckDBStorage.open(str(tmp_path / "test.db"), stub)
+    store = await open_db_connection(
+        tmp_path / "test.db",
+        stub,
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
     yield store
     await store.close()
 

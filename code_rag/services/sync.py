@@ -1,16 +1,32 @@
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 import pathspec
 
 from code_rag.api.models import SyncFileError, SyncResult
+from code_rag.core.constants import MAX_CONCURRENT_TASKS
 from code_rag.core.exceptions import DiscoveryError
 from code_rag.core.utils import validate_path
 from code_rag.parsers.languages import EXTENSION_TO_LANGUAGE
+from code_rag.services.dependencies import sync_dependencies
+from code_rag.services.indexing import IndexStack, sync_project
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SyncOptions:
+    """Parameters for a sync/rebuild use-case (no resource ownership)."""
+
+    root: Path
+    path: Optional[str] = None
+    index_all: bool = False
+    force: bool = False
+    allow_build_execution: bool = False
+    max_concurrency: int = MAX_CONCURRENT_TASKS
 
 
 def load_ignore_patterns(root: Path) -> pathspec.PathSpec:
@@ -54,62 +70,90 @@ def _result_from_failures(
     return SyncResult(status=status, indexed_files=indexed_files, errors=errors)
 
 
-async def run_sync(
-    manager,
-    *,
-    root: Path,
-    path: Optional[str] = None,
-    index_all: bool = False,
-    force: bool = False,
+def _indexable_under(root: Path, ignore_spec: pathspec.PathSpec) -> list[str]:
+    return [
+        str(p) for p in root.rglob("*") if p.is_file() and should_index(p, ignore_spec)
+    ]
+
+
+async def _run_project_sync(
+    stack: IndexStack,
+    paths: list[str],
+    options: SyncOptions,
+) -> list[tuple[str, str]]:
+    return await sync_project(
+        stack,
+        paths,
+        force_distill=options.force,
+        index_all=options.index_all,
+        max_concurrency=options.max_concurrency,
+    )
+
+
+async def _sync_validated_path(
+    stack: IndexStack,
+    validated_path: str,
+    options: SyncOptions,
+    ignore_spec: pathspec.PathSpec,
 ) -> SyncResult:
+    target_path = Path(validated_path)
+    if target_path.is_file():
+        if not should_index(target_path, ignore_spec):
+            return _result_from_failures(0, [])
+        failures = await _run_project_sync(stack, [str(target_path)], options)
+        return _result_from_failures(1, failures)
+
+    paths = _indexable_under(target_path, ignore_spec)
+    if not paths and not options.index_all:
+        return _result_from_failures(len(paths), [])
+    failures = await _run_project_sync(stack, paths, options)
+    return _result_from_failures(len(paths), failures)
+
+
+async def run_sync(stack: IndexStack, options: SyncOptions) -> SyncResult:
     """Syncs a single path, a directory tree, or the whole project into the index."""
-    if path is None and not index_all:
+    if options.path is None and not options.index_all:
         return SyncResult(status="success", indexed_files=0)
 
-    validated_path = str(validate_path(path, root=root)) if path else None
+    validated_path = (
+        str(validate_path(options.path, root=options.root)) if options.path else None
+    )
 
     try:
-        await manager.sync_dependencies(validated_path or str(root))
+        await sync_dependencies(
+            stack.storage,
+            validated_path or str(options.root),
+            allow_build_execution=options.allow_build_execution,
+        )
     except DiscoveryError as de:
         logger.warning("Dependency discovery failed: %s", de)
 
-    ignore_spec = load_ignore_patterns(root)
-    indexed_files = 0
-    failures: list[tuple[str, str]] = []
+    ignore_spec = load_ignore_patterns(options.root)
 
     if validated_path:
-        target_path = Path(validated_path)
-        if target_path.is_file():
-            if should_index(target_path, ignore_spec):
-                failures = await manager.sync_project(
-                    [str(target_path)], force_distill=force, index_all=index_all
-                )
-                indexed_files = 1
-        else:
-            paths = [
-                str(p)
-                for p in target_path.rglob("*")
-                if p.is_file() and should_index(p, ignore_spec)
-            ]
-            if paths or index_all:
-                failures = await manager.sync_project(
-                    paths, force_distill=force, index_all=index_all
-                )
-            indexed_files = len(paths)
-    elif index_all:
-        paths = [
-            str(p)
-            for p in root.rglob("*")
-            if p.is_file() and should_index(p, ignore_spec)
-        ]
-        failures = await manager.sync_project(
-            paths, force_distill=force, index_all=index_all
-        )
-        indexed_files = len(paths)
+        return await _sync_validated_path(stack, validated_path, options, ignore_spec)
 
-    return _result_from_failures(indexed_files, failures)
+    paths = _indexable_under(options.root, ignore_spec)
+    failures = await _run_project_sync(stack, paths, options)
+    return _result_from_failures(len(paths), failures)
 
 
-async def run_rebuild(manager, *, root: Path) -> SyncResult:
+async def run_rebuild(
+    stack: IndexStack,
+    *,
+    root: Path,
+    allow_build_execution: bool = False,
+    max_concurrency: int = MAX_CONCURRENT_TASKS,
+) -> SyncResult:
     """Forces a full re-index of the entire project."""
-    return await run_sync(manager, root=root, path=None, index_all=True, force=True)
+    return await run_sync(
+        stack,
+        SyncOptions(
+            root=root,
+            path=None,
+            index_all=True,
+            force=True,
+            allow_build_execution=allow_build_execution,
+            max_concurrency=max_concurrency,
+        ),
+    )

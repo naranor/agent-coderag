@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 class DistillerConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    model: str = "auto"
-    api_base: str = "http://localhost:8081/api/v1"
+    model: Optional[str] = None
+    api_base: Optional[str] = None
     api_key: Optional[str] = None
-    provider: str = "openai"
+    provider: Optional[str] = None
     temperature: float = 0.0
     embedding_base: Optional[str] = None
     embedding_key: Optional[str] = None
@@ -25,6 +25,10 @@ class DistillerConfig(BaseModel):
     embedding_provider: Optional[str] = None
 
     @field_validator(
+        "model",
+        "api_base",
+        "api_key",
+        "provider",
         "embedding_base",
         "embedding_key",
         "embedding_model",
@@ -32,13 +36,17 @@ class DistillerConfig(BaseModel):
         mode="before",
     )
     @classmethod
-    def _blank_embedding_to_none(cls, value):
+    def _blank_string_to_none(cls, value):
         if value is None:
             return None
         if isinstance(value, str):
             stripped = value.strip()
             return stripped or None
         return value
+
+    def is_llm_configured(self) -> bool:
+        """True when distill LLM endpoint is explicitly configured (offline otherwise)."""
+        return bool(self.model and self.api_base and self.provider)
 
     @classmethod
     def load(cls) -> "DistillerConfig":
@@ -82,7 +90,14 @@ class Distiller(IIntelligence):
     async def summarize(self, code: str, unit_name: str) -> str:
         """
         Generates a concise technical summary of what the code DOES.
+
+        When LLM is not configured, returns "" without calling the network
+        (offline / signature-fallback mode).
         """
+        if not self.config.is_llm_configured():
+            logger.debug("LLM not configured; skipping distillation for %s", unit_name)
+            return ""
+
         prompt = f"""
 Analyze the following code block for '{unit_name}'.
 Provide a concise, 1-2 sentence technical description of its core logic and intent.
@@ -95,7 +110,7 @@ CODE:
 
 SUMMARY:
 """
-        model_id = self.config.model
+        model_id = str(self.config.model)
         if self.config.provider == "ollama" and not model_id.startswith("ollama/"):
             model_id = f"ollama/{model_id}"
 

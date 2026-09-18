@@ -47,6 +47,7 @@ lite_llm_cache.json
 .junie/
 .agents/
 .ai/
+.superpowers/
 
 *.swp
 *.swo

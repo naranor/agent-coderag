@@ -9,27 +9,24 @@ from typing import Optional
 import requests
 import pathspec
 
-from ..core.manager import CodeRAGManager
-from ..storage.duckdb_impl import DuckDBStorage
-from ..parsers.multi_parser import MultiParser
+from ..api.client import CodeRAG
+from ..api.models import SyncResult
+from ..core.constants import DEFAULT_CONNECT_TIMEOUT_SECONDS
+from ..core.exceptions import CodeRAGError
+from ..core.utils import validate_path
 from ..intelligence.distiller import Distiller, DistillerConfig
 from ..intelligence.embedder import Embedder, get_global_dir
-from ..core.utils import validate_path
-from ..core.exceptions import CodeRAGError
+from ..parsers.multi_parser import MultiParser
 from ..services import sync as sync_service
 from ..services.config import apply_config_updates
-from ..services.discovery_api import run_api
-from ..services.factory import create_manager
-from ..services.search import run_search
 from ..services.setup import run_setup
-from ..api.models import SyncResult
+from ..storage.duckdb_impl import DuckDBStorage
 
 logger = logging.getLogger(__name__)
 
 # Legacy compatibility surface: these names are imported/patched by existing
 # integrations and tests, so they must stay resolvable on this module.
 __all__ = [
-    "get_manager",
     "load_ignore_patterns",
     "should_index",
     "sync_cmd",
@@ -48,6 +45,18 @@ __all__ = [
     "validate_path",
     "main",
 ]
+
+
+def _coderag_from_args(args) -> CodeRAG:
+    return CodeRAG(
+        db=args.db,
+        onnx=getattr(args, "onnx", None),
+        root=Path.cwd(),
+        connect_timeout_seconds=float(
+            getattr(args, "connect_timeout", DEFAULT_CONNECT_TIMEOUT_SECONDS)
+        ),
+        allow_build_execution=bool(getattr(args, "allow_build_execution", False)),
+    )
 
 
 def load_ignore_patterns() -> pathspec.PathSpec:
@@ -85,15 +94,9 @@ async def sync_cmd(args):
     if args.path:
         args.path = str(validate_path(args.path))
 
-    manager = await get_manager(
-        args.db,
-        args.onnx,
-        allow_build_execution=getattr(args, "allow_build_execution", False),
-    )
+    rag = _coderag_from_args(args)
     try:
-        result = await sync_service.run_sync(
-            manager,
-            root=Path.cwd(),
+        result = await rag.sync(
             path=args.path,
             index_all=bool(args.all),
             force=bool(args.force),
@@ -107,13 +110,13 @@ async def sync_cmd(args):
             print(f"Error: {e}", file=sys.stderr)
         raise SystemExit(1) from e
     finally:
-        await manager.close()
+        await rag.close()
 
 
 async def search_cmd(args):
-    manager = await get_manager(args.db, args.onnx)
+    rag = _coderag_from_args(args)
     try:
-        results = await run_search(manager, args.query, limit=args.limit)
+        results = await rag.search(args.query, limit=args.limit)
 
         if args.json:
             output = []
@@ -140,14 +143,21 @@ async def search_cmd(args):
                 if r.summary:
                     print(f"  Summary: {r.summary}")
                 print("-" * 20)
+    except Exception as e:
+        logger.error("Search failed: %s", e)
+        if args.json:
+            print(json.dumps({"status": "error", "message": str(e)}))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        raise SystemExit(1) from e
     finally:
-        await manager.close()
+        await rag.close()
 
 
 async def api_cmd(args):
-    manager = await get_manager(args.db, args.onnx)
+    rag = _coderag_from_args(args)
     try:
-        report = await run_api(manager, args.library, lang=args.lang)
+        report = await rag.api(args.library, lang=args.lang)
 
         if args.json:
             print(json.dumps({"library": report.library, "report": report.report}))
@@ -160,7 +170,7 @@ async def api_cmd(args):
         else:
             print(f"Error: {e}", file=sys.stderr)
     finally:
-        await manager.close()
+        await rag.close()
 
 
 DISTILLER_KEYS = ("model", "api_base", "api_key", "provider", "temperature")
@@ -260,14 +270,9 @@ async def setup_cmd(args):
 
 async def rebuild_cmd(args):
     """Full re-index of the current project."""
-    manager = await get_manager(
-        args.db,
-        args.onnx,
-        allow_build_execution=getattr(args, "allow_build_execution", False),
-        wipe=True,
-    )
+    rag = _coderag_from_args(args)
     try:
-        result = await sync_service.run_rebuild(manager, root=Path.cwd())
+        result = await rag.rebuild()
         _emit_sync_outcome(result, json_mode=args.json, label="Rebuild")
     except Exception as exc:
         logger.error("Rebuild failed: %s", exc)
@@ -277,29 +282,30 @@ async def rebuild_cmd(args):
             print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
     finally:
-        await manager.close()
-
-
-async def get_manager(
-    db_path: str,
-    onnx_path: Optional[str] = None,
-    allow_build_execution: bool = False,
-    wipe: bool = False,
-) -> CodeRAGManager:
-    return await create_manager(
-        db_path,
-        onnx_path,
-        allow_build_execution=allow_build_execution,
-        wipe=wipe,
-    )
+        await rag.close()
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CodeRAG: API Knowledge Bridge.")
     parser.add_argument(
-        "--db", default="code_rag.db", help="Path to DuckDB database file."
+        "--db",
+        default=None,
+        help=(
+            "DuckDB index file. Default: resolve legacy code_rag.db in cwd/root, "
+            "else use .coderag.db under project root."
+        ),
     )
     parser.add_argument("--onnx", help="Path to local ONNX model file.")
+    parser.add_argument(
+        "--connect-timeout",
+        dest="connect_timeout",
+        type=float,
+        default=DEFAULT_CONNECT_TIMEOUT_SECONDS,
+        help=(
+            "Seconds to wait for a DuckDB file lock before StorageBusyError "
+            f"(default {DEFAULT_CONNECT_TIMEOUT_SECONDS:g}). 0 = no retry."
+        ),
+    )
     parser.add_argument(
         "--verbose", action="store_true", help="Enable verbose logging."
     )

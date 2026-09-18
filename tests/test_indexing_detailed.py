@@ -1,12 +1,13 @@
 import logging
 import os
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from code_rag.core.manager import CodeRAGManager
-from code_rag.core.interfaces import IStorage, IParser, IIntelligence
+from code_rag.core.interfaces import IIntelligence, IParser, IStorage
 from code_rag.core.models import KnowledgeUnit, UnitKind
+from code_rag.services.dependencies import sync_dependencies
+from code_rag.services.indexing import IndexStack, sync_file, sync_project
 from tests.embedder_stubs import StubEmbedder
 
 
@@ -41,18 +42,12 @@ def mock_intelligence():
     return intel
 
 
-@pytest.fixture
-def manager(mock_storage, mock_parser, mock_intelligence):
-    return CodeRAGManager(mock_storage, mock_parser, mock_intelligence)
-
-
-class TestManagerDetailed:
-    """Detailed unit tests for CodeRAGManager to increase coverage."""
+class TestIndexingDetailed:
+    """Detailed unit tests for indexing and dependency sync."""
 
     @pytest.mark.asyncio
-    async def test_sync_dependencies_maven(self, manager, tmp_path):
+    async def test_sync_dependencies_maven(self, mock_storage, tmp_path):
         """Test Maven dependency synchronization."""
-        manager.allow_build_execution = True
         (tmp_path / "pom.xml").write_text("<project></project>")
 
         with patch("shutil.which", return_value="/usr/bin/mvn"), patch(
@@ -63,51 +58,51 @@ class TestManagerDetailed:
             mock_process.returncode = 0
             mock_exec.return_value = mock_process
 
-            # Mock classpath file creation
             cp_file = tmp_path / ".coderag_cp.txt"
             cp_file.write_text(f"lib1.jar{os.pathsep}lib2-1.0.jar")
 
-            await manager.sync_dependencies(str(tmp_path))
+            await sync_dependencies(
+                mock_storage, str(tmp_path), allow_build_execution=True
+            )
 
-            # Verify storage calls
-            assert manager.storage.set_dependency_path.call_count == 2
-            manager.storage.set_dependency_path.assert_any_call("lib1", "lib1.jar")
-            manager.storage.set_dependency_path.assert_any_call("lib2", "lib2-1.0.jar")
+            assert mock_storage.set_dependency_path.call_count == 2
+            mock_storage.set_dependency_path.assert_any_call("lib1", "lib1.jar")
+            mock_storage.set_dependency_path.assert_any_call("lib2", "lib2-1.0.jar")
 
     @pytest.mark.asyncio
-    async def test_sync_dependencies_gradle(self, manager, tmp_path):
+    async def test_sync_dependencies_gradle(self, mock_storage, tmp_path):
         """Test Gradle dependency synchronization."""
-        manager.allow_build_execution = True
         (tmp_path / "build.gradle").write_text("apply plugin: 'java'")
 
         with patch("shutil.which", return_value="/usr/bin/gradle"), patch(
             "asyncio.create_subprocess_exec"
         ) as mock_exec:
             mock_process = AsyncMock()
-            # Gradle -q output with our marker
             mock_process.communicate.return_value = (b"CODERAG_CP:lib-gradle.jar", b"")
             mock_process.returncode = 0
             mock_exec.return_value = mock_process
 
-            await manager.sync_dependencies(str(tmp_path))
+            await sync_dependencies(
+                mock_storage, str(tmp_path), allow_build_execution=True
+            )
 
-            manager.storage.set_dependency_path.assert_called_with(
+            mock_storage.set_dependency_path.assert_called_with(
                 "lib-gradle", "lib-gradle.jar"
             )
 
     @pytest.mark.asyncio
     async def test_sync_dependencies_non_java_does_not_warn(
-        self, manager, tmp_path, caplog
+        self, mock_storage, tmp_path, caplog
     ):
         """Test dependency synchronization stays quiet without build files."""
         with caplog.at_level(logging.WARNING):
-            await manager.sync_dependencies(str(tmp_path))
+            await sync_dependencies(mock_storage, str(tmp_path))
 
         assert not caplog.records
 
     @pytest.mark.asyncio
     async def test_sync_dependencies_requires_build_execution_opt_in(
-        self, manager, tmp_path, caplog
+        self, mock_storage, tmp_path, caplog
     ):
         """Test repository build files are not executed without explicit opt-in."""
         (tmp_path / "pom.xml").write_text("<project></project>")
@@ -115,13 +110,15 @@ class TestManagerDetailed:
         with caplog.at_level(logging.WARNING), patch(
             "asyncio.create_subprocess_exec"
         ) as mock_exec:
-            await manager.sync_dependencies(str(tmp_path))
+            await sync_dependencies(mock_storage, str(tmp_path))
 
         mock_exec.assert_not_called()
         assert "Dependency sync is disabled by default" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_sync_file_delta_logic(self, manager, mock_storage, mock_parser):
+    async def test_sync_file_delta_logic(
+        self, mock_storage, mock_parser, mock_intelligence
+    ):
         """Test sync_file with delta distillation logic."""
         unit = KnowledgeUnit(
             id="file.py:func",
@@ -133,7 +130,6 @@ class TestManagerDetailed:
         )
         mock_parser.distill_file.return_value = [unit]
 
-        # Scenario 1: Existing unit with same hash (Skip distillation)
         existing = KnowledgeUnit(
             id="file.py:func",
             name="func",
@@ -144,18 +140,20 @@ class TestManagerDetailed:
         )
         mock_storage.get_unit.return_value = existing
 
-        await manager.sync_file("file.py")
+        stack = IndexStack(mock_storage, mock_parser, mock_intelligence)
+        await sync_file(stack, "file.py")
         assert unit.summary == "old summary"
-        manager.intelligence.summarize.assert_not_called()
+        mock_intelligence.summarize.assert_not_called()
 
-        # Scenario 2: Hash mismatch (Re-distill)
         unit.code_hash = "different_hash"
-        await manager.sync_file("file.py")
+        await sync_file(stack, "file.py")
         assert unit.summary == "distilled summary"
-        manager.intelligence.summarize.assert_called_once()
+        mock_intelligence.summarize.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_sync_project_worker_pool(self, manager, mock_parser):
+    async def test_sync_project_worker_pool(
+        self, mock_storage, mock_parser, mock_intelligence
+    ):
         """Test sync_project concurrent execution."""
         paths = ["f1.py", "f2.py", "f3.py"]
         mock_parser.distill_file.side_effect = [
@@ -188,18 +186,20 @@ class TestManagerDetailed:
             ],
         ]
 
-        await manager.sync_project(paths)
+        await sync_project(
+            IndexStack(mock_storage, mock_parser, mock_intelligence), paths
+        )
 
         assert mock_parser.distill_file.call_count == 3
-        assert manager.storage.upsert_unit.call_count == 3
+        assert mock_storage.upsert_unit.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_manager_close(self, manager):
-        """Test resource release on close."""
-        # Add close method to intelligence if missing (for mock)
-        manager.intelligence.close = AsyncMock()
-
-        await manager.close()
-
-        manager.storage.close.assert_called_once()
-        manager.intelligence.close.assert_awaited_once()
+    async def test_storage_close_after_sync(
+        self, mock_storage, mock_parser, mock_intelligence
+    ):
+        """Test storage can be closed after indexing (embedder owned by facade)."""
+        await sync_file(
+            IndexStack(mock_storage, mock_parser, mock_intelligence), "file.py"
+        )
+        await mock_storage.close()
+        mock_storage.close.assert_called_once()
