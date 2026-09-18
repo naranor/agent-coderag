@@ -23,6 +23,7 @@
 - Corrupt metadata and embedding-dimension mismatches map to `STORAGE_CORRUPT` / `EMBEDDING_MISMATCH`.
 - Distiller no longer uses implicit LLM defaults (`model=auto`, `provider=openai`, localhost API). Without explicit `model` + `api_base` + `provider`, `summarize` skips LiteLLM (true offline distillation fallback).
 - CLI e2e isolates `LOCALAPPDATA` and `XDG_CACHE_HOME`, seeds MiniLM into the temp cache (or `CODERAG_E2E_ONNX`), and `pytest.skip`s with a clear message when no ONNX is available.
+- `CodeRAG.config()` invalidates the process embedder only when embedding fields change (`--clear-embedding` / embedding-*); distill-only updates refresh Distiller and keep the embedder.
 
 ## [1.3.5] - 2026-09-12
 

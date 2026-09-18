@@ -256,3 +256,65 @@ async def test_cli_commands_use_facade_not_legacy_factory(tmp_path, monkeypatch)
     assert len(constructed) == 3
     assert all(kwargs["db"] == db for kwargs in constructed)
     assert all(kwargs["connect_timeout_seconds"] == 7.0 for kwargs in constructed)
+
+
+@pytest.mark.asyncio
+async def test_config_embedding_change_closes_embedder(
+    tmp_path, monkeypatch, stub_stack
+):
+    embedder, calls = stub_stack
+    embedder.close = AsyncMock(wraps=embedder.close)
+    db = tmp_path / "idx.db"
+    await _seed_index(db, embedder)
+
+    monkeypatch.setattr(
+        "code_rag.api.client.load_or_update_config",
+        lambda **k: DistillerConfig(embedding_base="http://e", embedding_model="m"),
+    )
+
+    rag = CodeRAG(db=str(db), connect_timeout_seconds=0)
+    await rag.search("q")
+    assert rag._embedder is embedder
+    assert calls["create_embedder"] == 1
+
+    await rag.config(embedding_url="http://e", embedding_model="m")
+    embedder.close.assert_awaited()
+    assert rag._embedder is None
+    assert rag._distiller is None
+
+    await rag.search("q")
+    assert calls["create_embedder"] == 2
+    await rag.close()
+
+
+@pytest.mark.asyncio
+async def test_config_distill_only_keeps_embedder_replaces_distiller(
+    tmp_path, monkeypatch, stub_stack
+):
+    embedder, calls = stub_stack
+    db = tmp_path / "idx.db"
+    await _seed_index(db, embedder)
+
+    monkeypatch.setattr(
+        "code_rag.api.client.load_or_update_config",
+        lambda **k: DistillerConfig(
+            model="qwen", api_base="http://llm", provider="ollama"
+        ),
+    )
+    monkeypatch.setattr(
+        "code_rag.intelligence.distiller.DistillerConfig.load",
+        lambda: DistillerConfig(model="qwen", api_base="http://llm", provider="ollama"),
+    )
+
+    rag = CodeRAG(db=str(db), connect_timeout_seconds=0)
+    await rag.search("q")
+    old_distiller = rag._distiller
+    assert rag._embedder is embedder
+
+    await rag.config(url="http://llm", provider="ollama", model="qwen")
+    assert rag._embedder is embedder
+    assert rag._distiller is not None
+    assert rag._distiller is not old_distiller
+    assert rag._distiller.config.model == "qwen"
+    assert calls["create_embedder"] == 1
+    await rag.close()

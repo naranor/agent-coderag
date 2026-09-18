@@ -10,9 +10,13 @@ from code_rag.core.interfaces import IEmbedder, IIntelligence, IParser
 from code_rag.core.models import KnowledgeUnit
 from code_rag.discovery.manager import DiscoveryManager
 from code_rag.discovery.providers.java import JavaDiscoveryProvider
-from code_rag.intelligence.distiller import DistillerConfig
+from code_rag.intelligence.distiller import Distiller, DistillerConfig
 from code_rag.paths import resolve_db_path
-from code_rag.services.config import load_or_update_config
+from code_rag.services.config import (
+    distill_fields_requested,
+    embedding_fields_requested,
+    load_or_update_config,
+)
 from code_rag.services.discovery_api import run_api
 from code_rag.services.factory import create_stack
 from code_rag.services.search import run_search
@@ -121,7 +125,17 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
         embedding_provider: Optional[str] = None,
         clear_embedding: bool = False,
     ) -> DistillerConfig:
-        return load_or_update_config(
+        touch_embedding = embedding_fields_requested(
+            embedding_url=embedding_url,
+            embedding_key=embedding_key,
+            embedding_model=embedding_model,
+            embedding_provider=embedding_provider,
+            clear_embedding=clear_embedding,
+        )
+        touch_distill = distill_fields_requested(
+            url=url, key=key, model=model, provider=provider
+        )
+        result = load_or_update_config(
             url=url,
             key=key,
             model=model,
@@ -132,6 +146,29 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
             embedding_provider=embedding_provider,
             clear_embedding=clear_embedding,
         )
+        if touch_embedding or touch_distill:
+            await self._invalidate_stack_after_config(
+                embedding=touch_embedding, distill=touch_distill
+            )
+        return result
+
+    async def _invalidate_stack_after_config(
+        self, *, embedding: bool, distill: bool
+    ) -> None:
+        """Refresh process stack pieces affected by config().
+
+        Embedding changes close and drop the embedder (full stack rebuild on
+        next op). Distill-only changes replace Distiller and keep the embedder.
+        """
+        async with self._op_lock:
+            if embedding and self._embedder is not None:
+                await self._embedder.close()
+                self._embedder = None
+                self._parser = None
+                self._distiller = None
+                return
+            if distill and self._distiller is not None:
+                self._distiller = Distiller(DistillerConfig.load())
 
     async def setup(self, *, force: bool = False) -> SetupResult:
         return await run_setup(force=force)

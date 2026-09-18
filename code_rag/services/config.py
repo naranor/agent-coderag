@@ -63,17 +63,49 @@ def _has_updates(  # pylint: disable=too-many-arguments,too-many-positional-argu
     embedding_provider,
     clear_embedding,
 ) -> bool:
+    return embedding_fields_requested(
+        embedding_url=embedding_url,
+        embedding_key=embedding_key,
+        embedding_model=embedding_model,
+        embedding_provider=embedding_provider,
+        clear_embedding=clear_embedding,
+    ) or distill_fields_requested(url=url, key=key, model=model, provider=provider)
+
+
+def embedding_fields_requested(  # pylint: disable=too-many-arguments
+    *,
+    embedding_url: str | None = None,
+    embedding_key: str | None = None,
+    embedding_model: str | None = None,
+    embedding_provider: str | None = None,
+    clear_embedding: bool = False,
+) -> bool:
+    """True when this config call touches remote/local embedder selection."""
+    return any(
+        [
+            embedding_url is not None,
+            embedding_key is not None,
+            embedding_model is not None,
+            embedding_provider is not None,
+            clear_embedding,
+        ]
+    )
+
+
+def distill_fields_requested(
+    *,
+    url: str | None = None,
+    key: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+) -> bool:
+    """True when this config call touches LLM distillation settings."""
     return any(
         [
             url is not None,
             key is not None,
             model is not None,
             provider is not None,
-            embedding_url is not None,
-            embedding_key is not None,
-            embedding_model is not None,
-            embedding_provider is not None,
-            clear_embedding,
         ]
     )
 
