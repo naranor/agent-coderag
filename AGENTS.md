@@ -114,8 +114,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 **E2E must not depend on the developer machine. Hangs are failures, not "noise".**
 
 ### Environment
-- Isolate `LOCALAPPDATA` / config / model cache for package and live e2e. Do not rely on the developer's global `config.json`.
-- Prefer an explicit `--onnx` (or seeded MiniLM under the isolated appdata) over implicit global models.
+- Isolate `LOCALAPPDATA` **and** `XDG_CACHE_HOME` (same temp cache root) for package and live e2e. Do not rely on the developer's global `config.json`.
+- Prefer an explicit `--onnx` (or MiniLM seeded into the isolated cache). Optional override: `CODERAG_E2E_ONNX` → `model.onnx` or its directory.
+- If no ONNX is available after seed: **`pytest.skip`** with a clear message (run `agent-coderag setup` or set `CODERAG_E2E_ONNX`) — do not soft-fail mid-suite.
 - At the start of path/resolve live checks: `chdir` into a clean temp tree. Never assert resolve behavior from the repo root if `code_rag.db` / `.coderag.db` may exist in cwd.
 
 ### Subprocesses and timeouts

@@ -4,30 +4,54 @@ import shutil
 import sys
 from pathlib import Path
 
-from code_rag.intelligence.embedder import get_default_model_dir
+import pytest
 
 # Use the same temporary directory for E2E consistency
 E2E_TMP = Path(os.getenv("TEMP", "/tmp")) / "agent-coderag-e2e"
 _CLI_TIMEOUT_SECONDS = 120
+_SKIP_NO_ONNX = (
+    "E2E requires a local MiniLM ONNX model. "
+    "Run `agent-coderag setup` once on this machine, "
+    "or set CODERAG_E2E_ONNX to model.onnx (or a directory containing it)."
+)
 
 _ORIGINAL_LOCALAPPDATA: str | None = None
+_ORIGINAL_XDG_CACHE_HOME: str | None = None
 _ONNX_PATH: Path | None = None
 
 
-def _seed_local_model(appdata: Path) -> Path | None:
-    """Copy cached MiniLM into isolated LOCALAPPDATA when available."""
-    real_local = os.environ.get("LOCALAPPDATA") or str(
-        Path.home() / "AppData" / "Local"
+def _host_mini_lm_dirs() -> list[Path]:
+    """Candidate host model dirs (read before env isolation)."""
+    dirs: list[Path] = []
+    env_onnx = os.environ.get("CODERAG_E2E_ONNX")
+    if env_onnx:
+        path = Path(env_onnx)
+        if path.is_file():
+            dirs.append(path.parent)
+        elif path.is_dir():
+            dirs.append(path)
+
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        dirs.append(Path(local) / "agent-coderag" / "models" / "mini-lm")
+    xdg = os.environ.get("XDG_CACHE_HOME")
+    if xdg:
+        dirs.append(Path(xdg) / "agent-coderag" / "models" / "mini-lm")
+
+    dirs.append(
+        Path.home() / "AppData" / "Local" / "agent-coderag" / "models" / "mini-lm"
     )
-    candidates = [
-        Path(real_local) / "agent-coderag" / "models" / "mini-lm",
-        get_default_model_dir(),
-    ]
-    src = next((p for p in candidates if (p / "model.onnx").exists()), None)
+    dirs.append(Path.home() / ".cache" / "agent-coderag" / "models" / "mini-lm")
+    return dirs
+
+
+def _seed_local_model(cache_root: Path) -> Path | None:
+    """Copy MiniLM into isolated cache; return path to model.onnx or None."""
+    src = next((p for p in _host_mini_lm_dirs() if (p / "model.onnx").exists()), None)
     if src is None:
         return None
 
-    dest = appdata / "agent-coderag" / "models" / "mini-lm"
+    dest = cache_root / "agent-coderag" / "models" / "mini-lm"
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src / "model.onnx", dest / "model.onnx")
     for name in ("tokenizer.json",):
@@ -41,18 +65,23 @@ def _seed_local_model(appdata: Path) -> Path | None:
 
 def setup_module(module):
     """Prepare an isolated dummy project for E2E testing."""
-    global _ORIGINAL_LOCALAPPDATA, _ONNX_PATH
+    global _ORIGINAL_LOCALAPPDATA, _ORIGINAL_XDG_CACHE_HOME, _ONNX_PATH
 
     if E2E_TMP.exists():
         shutil.rmtree(E2E_TMP)
     E2E_TMP.mkdir(parents=True)
 
-    # Isolate global config/models so developer config cannot hang distill/embed.
+    # Snapshot host env, then isolate config/model cache on all platforms.
     _ORIGINAL_LOCALAPPDATA = os.environ.get("LOCALAPPDATA")
-    appdata = E2E_TMP / "appdata"
-    appdata.mkdir()
-    _ONNX_PATH = _seed_local_model(appdata)
-    os.environ["LOCALAPPDATA"] = str(appdata)
+    _ORIGINAL_XDG_CACHE_HOME = os.environ.get("XDG_CACHE_HOME")
+    cache_root = E2E_TMP / "cache"
+    cache_root.mkdir()
+    _ONNX_PATH = _seed_local_model(cache_root)
+    if _ONNX_PATH is None:
+        pytest.skip(_SKIP_NO_ONNX)
+
+    os.environ["LOCALAPPDATA"] = str(cache_root)
+    os.environ["XDG_CACHE_HOME"] = str(cache_root)
 
     (E2E_TMP / "app.py").write_text(
         '''
@@ -83,11 +112,16 @@ def tokenize(text: str) -> list[str]:
 
 
 def teardown_module(module):
-    """Cleanup isolated temp + restore LOCALAPPDATA."""
+    """Cleanup isolated temp + restore host cache env."""
     if _ORIGINAL_LOCALAPPDATA is None:
         os.environ.pop("LOCALAPPDATA", None)
     else:
         os.environ["LOCALAPPDATA"] = _ORIGINAL_LOCALAPPDATA
+
+    if _ORIGINAL_XDG_CACHE_HOME is None:
+        os.environ.pop("XDG_CACHE_HOME", None)
+    else:
+        os.environ["XDG_CACHE_HOME"] = _ORIGINAL_XDG_CACHE_HOME
 
     if E2E_TMP.exists():
         shutil.rmtree(E2E_TMP)
@@ -102,9 +136,9 @@ def run_cli(*args):
         "code_rag.entry.cli",
         "--db",
         str(E2E_TMP / "test.db"),
+        "--onnx",
+        str(_ONNX_PATH),
     ]
-    if _ONNX_PATH is not None:
-        cmd.extend(["--onnx", str(_ONNX_PATH)])
     cmd.extend(args)
     return subprocess.run(
         cmd,
@@ -117,9 +151,10 @@ def run_cli(*args):
 
 
 def test_e2e_setup_command():
-    """Verify setup command executes."""
+    """Verify setup command executes under isolated cache."""
     res = run_cli("setup")
-    assert res.returncode in (0, 1)
+    # May download or no-op if files already seeded; allow non-zero on network errors.
+    assert res.returncode in (0, 1), res.stderr
 
 
 def test_e2e_sync_and_db_state():
