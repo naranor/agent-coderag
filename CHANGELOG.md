@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-21
+
 ### Added
 - Public `ErrorCode.EMBEDDINGS_MISSING` when a read-only open finds base tables but no `unit_embeddings` table.
 - CLI `--json` error objects may include `"code"` when the exception is a `CodeRAGError` with a code.
