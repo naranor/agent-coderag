@@ -501,6 +501,77 @@ async def test_ro_open_incomplete_meta_does_not_write(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ro_search_missing_embeddings_table_raises(tmp_path):
+    path = tmp_path / "base_only.db"
+    stub_rw = StubEmbedder(dim=8, model_id="stub")
+    storage = await open_db_connection(
+        path, stub_rw, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
+    await storage.close()
+    # Base tables exist; unit_embeddings must not.
+    stub = UnboundStubEmbedder(probe_dim=8, model_id="remote-8")
+    storage = await open_db_connection(
+        path, stub, mode=AccessMode.READ_ONLY, connect_timeout_seconds=0
+    )
+    try:
+        with pytest.raises(StorageError, match="sync") as ei:
+            await storage.search_units("q")
+        assert ei.value.code is ErrorCode.EMBEDDINGS_MISSING
+        assert "duckdb" not in str(ei.value).lower()
+        assert "Catalog" not in str(ei.value)
+        assert stub.aembed_calls == []
+        assert storage._embeddings_bound is False
+        # Retry must still raise (flag must not stick True).
+        with pytest.raises(StorageError) as ei2:
+            await storage.search_units("q")
+        assert ei2.value.code is ErrorCode.EMBEDDINGS_MISSING
+        assert stub.aembed_calls == []
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_ro_has_embedding_missing_table_raises(tmp_path):
+    path = tmp_path / "base_only.db"
+    stub_rw = StubEmbedder(dim=8, model_id="stub")
+    storage = await open_db_connection(
+        path, stub_rw, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
+    await storage.close()
+    stub = UnboundStubEmbedder(probe_dim=8, model_id="remote-8")
+    storage = await open_db_connection(
+        path, stub, mode=AccessMode.READ_ONLY, connect_timeout_seconds=0
+    )
+    try:
+        with pytest.raises(StorageError) as ei:
+            await storage.has_embedding("u1")
+        assert ei.value.code is ErrorCode.EMBEDDINGS_MISSING
+        assert stub.aembed_calls == []
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_ro_search_empty_embeddings_table_returns_empty(tmp_path):
+    path = tmp_path / "empty_vec.db"
+    stub_rw = StubEmbedder(dim=8, model_id="stub")
+    storage = await open_db_connection(
+        path, stub_rw, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
+    )
+    await storage.ensure_embeddings_bound()  # creates empty unit_embeddings
+    await storage.close()
+    stub = StubEmbedder(dim=8, model_id="stub")
+    storage = await open_db_connection(
+        path, stub, mode=AccessMode.READ_ONLY, connect_timeout_seconds=0
+    )
+    try:
+        hits = await storage.search_units("q")
+        assert hits == []
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
 async def test_ensure_bound_double_checked_lock(tmp_path):
     import asyncio as aio
 
