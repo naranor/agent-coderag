@@ -59,6 +59,14 @@ def _coderag_from_args(args) -> CodeRAG:
     )
 
 
+def _emit_json_error(exc: Exception) -> None:
+    payload = {"status": "error", "message": str(exc)}
+    code = getattr(exc, "code", None)
+    if isinstance(exc, CodeRAGError) and code is not None:
+        payload["code"] = code.value if hasattr(code, "value") else str(code)
+    print(json.dumps(payload))
+
+
 def load_ignore_patterns() -> pathspec.PathSpec:
     """Loads ignore patterns from the current directory's .gitignore or defaults."""
     return sync_service.load_ignore_patterns(Path.cwd())
@@ -105,7 +113,7 @@ async def sync_cmd(args):
     except Exception as e:
         logger.error("Sync failed: %s", e)
         if args.json:
-            print(json.dumps({"status": "error", "message": str(e)}))
+            _emit_json_error(e)
         else:
             print(f"Error: {e}", file=sys.stderr)
         raise SystemExit(1) from e
@@ -146,7 +154,7 @@ async def search_cmd(args):
     except Exception as e:
         logger.error("Search failed: %s", e)
         if args.json:
-            print(json.dumps({"status": "error", "message": str(e)}))
+            _emit_json_error(e)
         else:
             print(f"Error: {e}", file=sys.stderr)
         raise SystemExit(1) from e
@@ -166,7 +174,7 @@ async def api_cmd(args):
     except Exception as e:
         logger.error("API discovery failed: %s", e)
         if args.json:
-            print(json.dumps({"status": "error", "message": str(e)}))
+            _emit_json_error(e)
         else:
             print(f"Error: {e}", file=sys.stderr)
     finally:
@@ -277,7 +285,7 @@ async def rebuild_cmd(args):
     except Exception as exc:
         logger.error("Rebuild failed: %s", exc)
         if args.json:
-            print(json.dumps({"status": "error", "message": str(exc)}))
+            _emit_json_error(exc)
         else:
             print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
