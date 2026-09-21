@@ -26,7 +26,7 @@ async def test_unbound_probe_does_not_check_length_and_defines_via_bind():
         api_base="http://e", model="emb-3", api_key="secret"
     )
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=AsyncMock(return_value=_resp([[3.0, 4.0, 0.0]])),
     ) as mock_emb:
         rows = await embedder.aembed(["probe"])
@@ -47,7 +47,7 @@ async def test_bound_length_mismatch_raises():
     embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
     embedder.bind_dimension(2)
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=AsyncMock(return_value=_resp([[1.0, 0.0, 0.0]])),
     ):
         with pytest.raises(IntelligenceError, match="Embedding length 3"):
@@ -59,7 +59,7 @@ async def test_order_preserved_one_to_one():
     embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
     embedder.bind_dimension(2)
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=AsyncMock(return_value=_resp([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])),
     ):
         rows = await embedder.aembed(["a", "b", "c"])
@@ -75,7 +75,7 @@ async def test_ollama_prefix_and_custom_provider():
     )
     assert embedder.model_id == "ollama/nomic"
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=AsyncMock(return_value=_resp([[1.0]])),
     ) as mock_emb:
         await embedder.aembed(["t"])
@@ -87,7 +87,7 @@ async def test_ollama_prefix_and_custom_provider():
 async def test_provider_omitted_when_unset():
     embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=AsyncMock(return_value=_resp([[1.0]])),
     ) as mock_emb:
         await embedder.aembed(["t"])
@@ -98,13 +98,13 @@ async def test_provider_omitted_when_unset():
 async def test_timeout_and_auth_become_intelligence_error():
     embedder = OpenAICompatEmbedder(api_base="http://e", model="m", api_key="k")
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=AsyncMock(side_effect=TimeoutError("timed out")),
     ):
         with pytest.raises(IntelligenceError):
             await embedder.aembed(["t"])
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=AsyncMock(side_effect=RuntimeError("401 unauthorized")),
     ):
         with pytest.raises(IntelligenceError, match="401"):
@@ -126,7 +126,7 @@ async def test_semaphore_serializes_aembed():
         return _resp([[1.0, 0.0]])
 
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=fake_aembedding,
     ):
         await asyncio.gather(embedder.aembed(["a"]), embedder.aembed(["b"]))
@@ -162,7 +162,7 @@ async def test_aembed_accepts_litellm_dict_items():
     resp = MagicMock()
     resp.data = [{"embedding": [3.0, 4.0, 0.0], "index": 0, "object": "embedding"}]
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=AsyncMock(return_value=resp),
     ):
         rows = await embedder.aembed(["probe"])
@@ -177,7 +177,7 @@ async def test_aembed_flattens_nested_embedding_vector():
     resp = MagicMock()
     resp.data = [{"embedding": [[1.0, 0.0]]}]
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=AsyncMock(return_value=resp),
     ):
         rows = await embedder.aembed(["x"])
@@ -191,7 +191,7 @@ async def test_aembed_rejects_unparseable_response():
     resp = MagicMock()
     resp.data = [object()]
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=AsyncMock(return_value=resp),
     ):
         with pytest.raises(IntelligenceError, match="Embedding request failed"):
@@ -203,7 +203,7 @@ async def test_aembed_count_mismatch():
     embedder = OpenAICompatEmbedder(api_base="http://e", model="m")
     embedder.bind_dimension(2)
     with patch(
-        "code_rag.intelligence.openai_embedder.litellm.aembedding",
+        "litellm.aembedding",
         new=AsyncMock(return_value=_resp([[1.0, 0.0], [0.0, 1.0]])),
     ):
         with pytest.raises(IntelligenceError, match="count mismatch"):

@@ -6,6 +6,7 @@ from io import StringIO
 from unittest.mock import MagicMock, patch, AsyncMock
 from pathlib import Path
 
+from code_rag.entry import args as cli_args
 from code_rag.entry import cli
 from code_rag.core.exceptions import CodeRAGError
 from code_rag.api.models import ApiReport
@@ -175,6 +176,43 @@ class TestCLIDetailed:
                 data = json.loads(sys.stdout.getvalue())
                 assert data["status"] == "error"
                 assert "Database file not found" in data["message"]
+                assert "code" not in data
+            finally:
+                sys.stdout = old_stdout
+            instances[0].close.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_search_cmd_json_error_includes_code(self):
+        from code_rag.core.error_codes import ErrorCode
+        from code_rag.core.exceptions import StorageError
+
+        fake_cls, instances = fake_coderag_class(
+            search=AsyncMock(
+                side_effect=StorageError(
+                    "Embeddings table is missing; run sync (CodeRAG.sync) before search.",
+                    code=ErrorCode.EMBEDDINGS_MISSING,
+                )
+            )
+        )
+        with patch("code_rag.entry.cli.CodeRAG", fake_cls):
+            args = argparse.Namespace(
+                db="x.db",
+                onnx=None,
+                verbose=False,
+                json=True,
+                query="auth",
+                limit=5,
+            )
+            old_stdout = sys.stdout
+            sys.stdout = StringIO()
+            try:
+                with pytest.raises(SystemExit) as exc:
+                    await cli.search_cmd(args)
+                assert exc.value.code == 1
+                data = json.loads(sys.stdout.getvalue())
+                assert data["status"] == "error"
+                assert data["code"] == "EMBEDDINGS_MISSING"
+                assert "sync" in data["message"]
             finally:
                 sys.stdout = old_stdout
             instances[0].close.assert_awaited()
@@ -350,7 +388,7 @@ class TestCLIDetailed:
     def test_cli_main_exception_handling(self):
         """Test main entry point handles exceptions gracefully."""
         with patch(
-            "code_rag.entry.cli.argparse.ArgumentParser.parse_args"
+            "code_rag.entry.args.argparse.ArgumentParser.parse_args"
         ) as mock_parse, patch("code_rag.entry.cli.asyncio.run"):
             mock_parse.side_effect = CodeRAGError("Known Error")
 
@@ -358,7 +396,7 @@ class TestCLIDetailed:
             sys.stderr = StringIO()
             try:
                 with pytest.raises(SystemExit) as exc:
-                    cli.main()
+                    cli_args.main()
                 assert exc.value.code == 1
                 assert "Known Error" in sys.stderr.getvalue()
             finally:

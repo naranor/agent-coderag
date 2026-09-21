@@ -19,3 +19,7 @@ def test_public_exports():
 
     assert hasattr(code_rag, "ErrorCode")
     assert hasattr(code_rag, "StorageBusyError")
+
+
+def test_embeddings_missing_member():
+    assert ErrorCode.EMBEDDINGS_MISSING.value == "EMBEDDINGS_MISSING"

@@ -1,8 +1,8 @@
 import asyncio
+import importlib
 import logging
 from typing import Optional
 
-import litellm
 import numpy as np
 
 from ..core.constants import EMBEDDING_REQUEST_TIMEOUT
@@ -74,6 +74,8 @@ class OpenAICompatEmbedder(IEmbedder):
         }
         if self._provider is not None:
             kwargs["custom_llm_provider"] = self._provider
+        litellm = importlib.import_module("litellm")
+
         async with self._embed_lock:
             try:
                 response = await litellm.aembedding(**kwargs)

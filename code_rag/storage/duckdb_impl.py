@@ -18,6 +18,10 @@ from ..core.exceptions import StorageError, IntelligenceError
 
 logger = logging.getLogger(__name__)
 
+EMBEDDINGS_MISSING_MSG = (
+    "Embeddings table is missing; run sync (CodeRAG.sync) before search."
+)
+
 
 class AccessMode(str, Enum):
     """Whether a connection may write. Not part of the public package API."""
@@ -315,6 +319,16 @@ class DuckDBStorage(IStorage):
             self._pending_wipe = False
 
     async def _bind_embeddings(self) -> None:
+        if self.mode is AccessMode.READ_ONLY:
+            exists = await self._run_on_executor(
+                lambda: _table_exists(self.conn, "unit_embeddings")
+            )
+            if not exists:
+                raise StorageError(
+                    EMBEDDINGS_MISSING_MSG,
+                    code=ErrorCode.EMBEDDINGS_MISSING,
+                )
+
         dim = await bind_embedder_dimension(
             self.conn,
             self.embedder,
