@@ -143,10 +143,10 @@ async def main():
 - **Explicit path:** `CodeRAG(db=...)` / `agent-coderag --db ...`. Path is a **file**, not a directory. Relative paths resolve against **process cwd**, not `root`.
 - **Sidecars:** DuckDB may write WAL sidecars (e.g. `.coderag.db.wal`) beside the index during writes; locks should not persist after an operation finishes.
 - **Connect timeout:** `connect_timeout_seconds=5` (CLI `--connect-timeout`) waits on file locks, then raises `StorageBusyError` (`ErrorCode.STORAGE_BUSY`). Pass `0` for a single attempt.
-- **Read-only search:** `search` (and `api` when storage is needed) opens read-only. A missing index file is an error — use `sync`/`rebuild` to create it. With `--json`, success is a hit array; errors are `{"status":"error","message":...}` (same shape as `sync`/`api` failures).
+- **Read-only search:** `search` (and `api` when storage is needed) opens read-only. A missing **index file** is an error — use `sync`/`rebuild` to create it. An index file that exists but has no embeddings table (e.g. opened/written without a completed vector sync) raises `StorageError` with `ErrorCode.EMBEDDINGS_MISSING` — run `sync` (library: `CodeRAG.sync`) before search. With `--json`, success is a hit array; errors are `{"status":"error","message":...}` and include `"code"` when the exception carries an `ErrorCode`.
 - **Lifetime:** embedder/parser/distiller stay warm; DuckDB opens per operation and closes afterward. One `CodeRAG` instance serializes overlapping ops. `config()` with embedding flags / `--clear-embedding` closes the process embedder so the next op rebuilds it; distill-only `config` refreshes Distiller and keeps the embedder.
 - **`api()` without DB:** providers that do not need the index (e.g. Python) skip DuckDB entirely; Java uses a short read-only open for JAR cache lookup.
-- **Errors:** catch `CodeRAGError` and inspect `.code` — `STORAGE_BUSY`, `STORAGE_CORRUPT`, `EMBEDDING_MISMATCH` (`from code_rag import ErrorCode`).
+- **Errors:** catch `CodeRAGError` and inspect `.code` — `STORAGE_BUSY`, `STORAGE_CORRUPT`, `EMBEDDING_MISMATCH`, `EMBEDDINGS_MISSING` (`from code_rag import ErrorCode`).
 
 ---
 

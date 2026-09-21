@@ -9,6 +9,7 @@ def test_readme_documents_lifetime_and_db_resolve():
     assert "code_rag.db" in content
     assert "connect_timeout_seconds" in content
     assert "STORAGE_BUSY" in content
+    assert "EMBEDDINGS_MISSING" in content
     assert "read-only" in content.lower()
     assert "agent-coderag<1.4" in content
 

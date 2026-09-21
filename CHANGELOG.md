@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### Added
+- Public `ErrorCode.EMBEDDINGS_MISSING` when a read-only open finds base tables but no `unit_embeddings` table.
+- CLI `--json` error objects may include `"code"` when the exception is a `CodeRAGError` with a code.
+
+### Fixed
+- Search no longer surfaces a raw DuckDB catalog error when the embeddings table was never created; agents get an actionable `EMBEDDINGS_MISSING` instead.
+
 ## [1.4.0] - 2026-09-18
 
 ### Breaking
