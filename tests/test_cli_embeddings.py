@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from code_rag.core.exceptions import IntelligenceError
+from code_rag.entry import args as cli_args
 from code_rag.entry import cli
 from code_rag.intelligence.distiller import DistillerConfig
 from tests.fake_coderag import fake_coderag_class
@@ -206,6 +207,6 @@ def test_argparse_embedding_dests():
             ],
         ),
     ):
-        cli.main()
+        cli_args.main()
     assert captured["clear"] is True
     assert captured["eurl"] == "http://e"

@@ -8,6 +8,7 @@
 
 ### Fixed
 - Search no longer surfaces a raw DuckDB catalog error when the embeddings table was never created; agents get an actionable `EMBEDDINGS_MISSING` instead.
+- `agent-coderag --help` no longer imports LiteLLM, DuckDB, or ONNX. LiteLLM loads only when distillation or remote embeddings actually run.
 
 ## [1.4.0] - 2026-09-18
 

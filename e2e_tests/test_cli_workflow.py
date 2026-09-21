@@ -133,7 +133,7 @@ def run_cli(*args):
     cmd = [
         python_bin,
         "-m",
-        "code_rag.entry.cli",
+        "code_rag.entry.args",
         "--db",
         str(E2E_TMP / "test.db"),
         "--onnx",

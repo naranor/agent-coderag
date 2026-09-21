@@ -212,7 +212,7 @@ async def test_concurrent_sync_file_does_not_overlap_aembed():
         return [_unit(id=path, metadata={"raw_code": "x"})]
 
     parser.distill_file = AsyncMock(side_effect=distill)
-    with patch("code_rag.intelligence.openai_embedder.litellm.aembedding", new=fake):
+    with patch("litellm.aembedding", new=fake):
         await sync_project(IndexStack(storage, parser, intel), ["a.py", "b.py"])
     assert max_in_flight == 1
 

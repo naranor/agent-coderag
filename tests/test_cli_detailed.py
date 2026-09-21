@@ -6,6 +6,7 @@ from io import StringIO
 from unittest.mock import MagicMock, patch, AsyncMock
 from pathlib import Path
 
+from code_rag.entry import args as cli_args
 from code_rag.entry import cli
 from code_rag.core.exceptions import CodeRAGError
 from code_rag.api.models import ApiReport
@@ -387,7 +388,7 @@ class TestCLIDetailed:
     def test_cli_main_exception_handling(self):
         """Test main entry point handles exceptions gracefully."""
         with patch(
-            "code_rag.entry.cli.argparse.ArgumentParser.parse_args"
+            "code_rag.entry.args.argparse.ArgumentParser.parse_args"
         ) as mock_parse, patch("code_rag.entry.cli.asyncio.run"):
             mock_parse.side_effect = CodeRAGError("Known Error")
 
@@ -395,7 +396,7 @@ class TestCLIDetailed:
             sys.stderr = StringIO()
             try:
                 with pytest.raises(SystemExit) as exc:
-                    cli.main()
+                    cli_args.main()
                 assert exc.value.code == 1
                 assert "Known Error" in sys.stderr.getvalue()
             finally:

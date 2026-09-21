@@ -72,7 +72,7 @@ class TestDistiller:
         config = DistillerConfig()
         distiller = Distiller(config)
 
-        with patch("code_rag.intelligence.distiller.litellm.acompletion") as mock_comp:
+        with patch("litellm.acompletion") as mock_comp:
             result = await distiller.summarize("def test(): pass", "test_func")
             assert result == ""
             mock_comp.assert_not_called()
@@ -87,7 +87,7 @@ class TestDistiller:
         )
         distiller = Distiller(config)
 
-        with patch("code_rag.intelligence.distiller.litellm.acompletion") as mock_comp:
+        with patch("litellm.acompletion") as mock_comp:
             mock_response = MagicMock()
             mock_response.choices = [
                 MagicMock(message=MagicMock(content="Test summary."))
@@ -108,7 +108,7 @@ class TestDistiller:
         )
         distiller = Distiller(config)
 
-        with patch("code_rag.intelligence.distiller.litellm.acompletion") as mock_comp:
+        with patch("litellm.acompletion") as mock_comp:
             mock_response = MagicMock()
             mock_response.choices = [
                 MagicMock(message=MagicMock(content="Ollama summary."))

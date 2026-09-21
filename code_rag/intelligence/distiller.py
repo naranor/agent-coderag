@@ -1,7 +1,7 @@
 import logging
 import json
+import importlib
 from typing import Optional
-import litellm
 from pydantic import BaseModel, ConfigDict, field_validator
 from ..core.exceptions import IntelligenceError
 from ..core.interfaces import IIntelligence
@@ -114,6 +114,7 @@ SUMMARY:
         if self.config.provider == "ollama" and not model_id.startswith("ollama/"):
             model_id = f"ollama/{model_id}"
 
+        litellm = importlib.import_module("litellm")
         response = await litellm.acompletion(
             model=model_id,
             messages=[{"role": "user", "content": prompt}],
