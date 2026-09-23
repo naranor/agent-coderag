@@ -604,24 +604,33 @@ class DuckDBStorage(IStorage):
         value = await self._with_conn(lambda: _meta_get(self.conn, PATHS_MIGRATED_KEY))
         return value == "1"
 
-    async def commit_path_migration(self, mapping: dict[str, str]) -> None:
-        """Rewrite absolute paths, then set the once-only mark, in one transaction."""
+    async def commit_rewritten_path(self, old: str, new: str) -> None:
+        """Commit one absolute path rewrite. Does not set the done mark."""
 
         def _commit():
             self.conn.execute("BEGIN TRANSACTION")
             try:
                 has_embeddings = _table_exists(self.conn, "unit_embeddings")
-                for old, new in mapping.items():
-                    _rewrite_path_prefix(
-                        self.conn, old, new, has_embeddings=has_embeddings
-                    )
-                _meta_set(self.conn, PATHS_MIGRATED_KEY, "1")
+                _rewrite_path_prefix(self.conn, old, new, has_embeddings=has_embeddings)
                 self.conn.execute("COMMIT")
             except Exception:
                 self.conn.execute("ROLLBACK")
                 raise
 
         await self._with_conn(_commit)
+
+    async def mark_paths_migrated(self) -> None:
+        """Record that path migration is finished. Does not rewrite rows."""
+        await self._with_conn(lambda: _meta_set(self.conn, PATHS_MIGRATED_KEY, "1"))
+
+    async def commit_path_migration(self, mapping: dict[str, str]) -> None:
+        """Rewrite each path in its own transaction, then set the mark.
+
+        A failure leaves earlier paths committed and does not set the mark.
+        """
+        for old, new in mapping.items():
+            await self.commit_rewritten_path(old, new)
+        await self.mark_paths_migrated()
 
     async def close(self) -> None:
         if self._closed:

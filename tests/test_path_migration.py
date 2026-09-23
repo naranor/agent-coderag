@@ -70,7 +70,7 @@ async def test_commit_path_migration_rewrites_ids_and_sets_mark(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_failed_rewrite_does_not_set_mark(tmp_path):
+async def test_failed_rewrite_keeps_earlier_path_and_skips_mark(tmp_path):
     storage = await open_db_connection(
         tmp_path / "t.db",
         StubEmbedder(),
@@ -82,10 +82,13 @@ async def test_failed_rewrite_does_not_set_mark(tmp_path):
         old_b = "C:/old/b.py"
         await storage.upsert_unit(_unit(f"{old_a}:alpha", old_a, "h1"))
         await storage.upsert_unit(_unit(f"{old_b}:alpha", old_b, "h2"))
+        await storage.commit_rewritten_path(old_a, "src/a.py")
         with pytest.raises(Exception):
-            await storage.commit_path_migration({old_a: "src/a.py", old_b: "src/a.py"})
-        paths = storage.conn.execute("SELECT path FROM units ORDER BY path").fetchall()
-        assert [row[0] for row in paths] == [old_a, old_b]
+            await storage.commit_rewritten_path(old_b, "src/a.py")
+        paths = {
+            row[0] for row in storage.conn.execute("SELECT path FROM units").fetchall()
+        }
+        assert paths == {"src/a.py", old_b}
         assert await storage.paths_migration_done() is False
     finally:
         await storage.close()
@@ -100,7 +103,7 @@ async def test_empty_mapping_only_writes_the_mark(tmp_path):
         connect_timeout_seconds=0,
     )
     try:
-        await storage.commit_path_migration({})
+        await storage.mark_paths_migrated()
         assert await storage.paths_migration_done() is True
     finally:
         await storage.close()
