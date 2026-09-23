@@ -50,6 +50,13 @@ def build_parser() -> argparse.ArgumentParser:
     search = subparsers.add_parser("search", help="Semantic search.")
     search.add_argument("query", help="Natural language query.")
     search.add_argument("--limit", type=int, default=5, help="Result limit.")
+    search.add_argument(
+        "--relative-paths",
+        dest="relative_paths",
+        action="store_true",
+        default=None,
+        help="Print paths relative to the project root. Default: absolute paths under the current root.",
+    )
 
     api = subparsers.add_parser("api", help="Discover library API.")
     api.add_argument("library", help="Library name (e.g., pydantic).")

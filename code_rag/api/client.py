@@ -19,7 +19,7 @@ from code_rag.services.config import (
 )
 from code_rag.services.discovery_api import run_api
 from code_rag.services.factory import create_stack
-from code_rag.services.search import run_search
+from code_rag.services.search import format_unit_path, run_search
 from code_rag.services.setup import run_setup
 from code_rag.services.indexing import IndexStack
 from code_rag.services.sync import SyncOptions, run_rebuild, run_sync
@@ -40,12 +40,17 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
         root: Optional[Union[str, Path]] = None,
         allow_build_execution: bool = False,
         connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS,
+        relative_paths: bool | None = None,
     ):
         self._onnx = onnx
         self._root = Path(root) if root is not None else Path.cwd()
         self._allow_build_execution = allow_build_execution
         self._connect_timeout_seconds = connect_timeout_seconds
         self._db_path = resolve_db_path(db, root=self._root)
+        if relative_paths is None:
+            self._relative_paths = bool(DistillerConfig.load().relative_paths)
+        else:
+            self._relative_paths = relative_paths
         self._embedder: Optional[IEmbedder] = None
         self._parser: Optional[IParser] = None
         self._distiller: Optional[IIntelligence] = None
@@ -199,7 +204,12 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
 
     async def search(self, query: str, *, limit: int = 5) -> list[KnowledgeUnit]:
         async with self._with_storage(AccessMode.READ_ONLY) as storage:
-            return await run_search(storage, query, limit=limit)
+            units = await run_search(storage, query, limit=limit)
+        for unit in units:
+            unit.path = format_unit_path(
+                unit.path, root=self._root, relative_paths=self._relative_paths
+            )
+        return units
 
     async def _api_java(
         self,

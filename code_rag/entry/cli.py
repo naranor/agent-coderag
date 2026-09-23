@@ -46,6 +46,7 @@ __all__ = [
 
 
 def _coderag_from_args(args) -> CodeRAG:
+    relative_paths = getattr(args, "relative_paths", None)
     return CodeRAG(
         db=args.db,
         onnx=getattr(args, "onnx", None),
@@ -54,6 +55,7 @@ def _coderag_from_args(args) -> CodeRAG:
             getattr(args, "connect_timeout", DEFAULT_CONNECT_TIMEOUT_SECONDS)
         ),
         allow_build_execution=bool(getattr(args, "allow_build_execution", False)),
+        relative_paths=True if relative_paths else None,
     )
 
 
