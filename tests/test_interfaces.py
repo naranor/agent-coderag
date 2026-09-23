@@ -14,7 +14,9 @@ class TestIParser:
         """Test that subclass can implement IParser."""
 
         class MockParser(IParser):
-            async def distill_file(self, file_path: str) -> List[KnowledgeUnit]:
+            async def distill_file(
+                self, file_path: str, *, stored_path: str | None = None
+            ) -> List[KnowledgeUnit]:
                 return []
 
         parser = MockParser()

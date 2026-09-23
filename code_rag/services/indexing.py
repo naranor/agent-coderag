@@ -7,12 +7,14 @@ import inspect
 import logging
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional
 
 from code_rag.core.constants import EMBEDDING_BATCH_SIZE, MAX_CONCURRENT_TASKS
 from code_rag.core.exceptions import IntelligenceError, StorageError
 from code_rag.core.interfaces import IIntelligence, IParser, IStorage
 from code_rag.core.models import KnowledgeUnit
+from code_rag.paths import project_relative_posix
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,7 @@ class IndexStack:
     storage: IStorage
     parser: IParser
     intelligence: IIntelligence
+    root: Optional[Path] = None
 
 
 def _report_worker_failure(path: str, exc: BaseException) -> tuple[str, str]:
@@ -146,11 +149,19 @@ async def sync_file(
     *,
     force_distill: bool = False,
     max_concurrency: int = MAX_CONCURRENT_TASKS,
+    stored_path: str | None = None,
 ) -> None:
     """Parse, distill, embed, and upsert one file into ``stack.storage``."""
     await _reject_dirty_incremental(stack.storage)
     semaphore = asyncio.Semaphore(max_concurrency)
-    current_units = await stack.parser.distill_file(file_path)
+    if stored_path is None:
+        current_units = await stack.parser.distill_file(file_path)
+        identity = file_path
+    else:
+        current_units = await stack.parser.distill_file(
+            file_path, stored_path=stored_path
+        )
+        identity = stored_path
     pending: list[KnowledgeUnit] = []
     for unit in current_units:
         await _process_unit(
@@ -162,7 +173,7 @@ async def sync_file(
         )
     await _embed_and_upsert(stack.storage, pending)
     await stack.storage.delete_stale_units(
-        file_path, [unit.id for unit in current_units]
+        identity, [unit.id for unit in current_units]
     )
 
 
@@ -194,11 +205,17 @@ async def sync_project(
             except asyncio.QueueEmpty:
                 return failures
             try:
+                stored_path = (
+                    None
+                    if stack.root is None
+                    else project_relative_posix(Path(path), stack.root)
+                )
                 await sync_file(
                     stack,
                     path,
                     force_distill=force_distill,
                     max_concurrency=max_concurrency,
+                    stored_path=stored_path,
                 )
             except Exception as exc:
                 failures.append(_report_worker_failure(path, exc))

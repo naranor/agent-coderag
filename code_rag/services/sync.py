@@ -103,8 +103,14 @@ async def _run_project_sync(
     paths: list[str],
     options: SyncOptions,
 ) -> list[tuple[str, str]]:
+    rooted = IndexStack(
+        stack.storage,
+        stack.parser,
+        stack.intelligence,
+        root=options.root,
+    )
     return await sync_project(
-        stack,
+        rooted,
         paths,
         force_distill=options.force,
         index_all=options.index_all,

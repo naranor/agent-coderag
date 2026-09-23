@@ -17,15 +17,18 @@ class MultiParser(IParser):
     def __init__(self) -> None:
         self.tree_sitter_parser = TreeSitterParser()
 
-    async def distill_file(self, file_path: str) -> List[KnowledgeUnit]:
-        """
-        Parses a file using TreeSitterParser if the extension is supported.
-        """
+    async def distill_file(
+        self, file_path: str, *, stored_path: str | None = None
+    ) -> List[KnowledgeUnit]:
         _, ext = os.path.splitext(file_path)
         ext = ext.lower()
 
         if ext in EXTENSION_TO_LANGUAGE:
-            return await self.tree_sitter_parser.distill_file(file_path)
+            if stored_path is None:
+                return await self.tree_sitter_parser.distill_file(file_path)
+            return await self.tree_sitter_parser.distill_file(
+                file_path, stored_path=stored_path
+            )
 
         logger.debug("No parser for extension %s", ext)
         return []
