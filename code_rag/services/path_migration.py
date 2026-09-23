@@ -80,7 +80,7 @@ async def migrate_absolute_paths(
     groups = _groups(await storage.list_units())
     if not groups:
         await storage.commit_path_migration({})
-        return True
+        return False
     incomplete = False
     skipped_suffixes: set[str] = set()
     parsed: list[tuple[Path, Counter[str]]] = []

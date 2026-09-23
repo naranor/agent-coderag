@@ -374,6 +374,34 @@ async def test_changed_python_absolute_path_is_deleted_while_java_is_kept(
 
 
 @pytest.mark.asyncio
+async def test_partial_sync_without_absolute_paths_does_not_recommend_sync_all(
+    tmp_path: Path, capsys
+):
+    root = tmp_path / "proj"
+    source = root / "src" / "a.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    storage = await open_db_connection(
+        root / ".coderag.db",
+        StubEmbedder(),
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
+    intelligence = MagicMock()
+    intelligence.summarize = AsyncMock(return_value="kept")
+    try:
+        await storage.upsert_unit(_unit("src/a.py:alpha", "src/a.py", "stale"))
+        await run_sync(
+            IndexStack(storage, MultiParser(), intelligence),
+            SyncOptions(root=root, path=str(source), index_all=False),
+        )
+        assert "sync --all" not in capsys.readouterr().err
+        assert await storage.paths_migration_done() is True
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
 async def test_partial_sync_recommends_sync_all_after_migration(tmp_path: Path, capsys):
     root = tmp_path / "proj"
     source = root / "src" / "a.py"
