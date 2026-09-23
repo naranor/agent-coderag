@@ -14,6 +14,7 @@ from code_rag.paths import project_relative_posix
 from code_rag.parsers.languages import EXTENSION_TO_LANGUAGE
 from code_rag.services.dependencies import sync_dependencies
 from code_rag.services.indexing import IndexStack, sync_project
+from code_rag.services.path_migration import migrate_absolute_paths
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,13 @@ async def run_sync(stack: IndexStack, options: SyncOptions) -> SyncResult:
         logger.warning("Dependency discovery failed: %s", de)
 
     ignore_spec = load_ignore_patterns(options.root)
+    candidates = [
+        Path(item)
+        for item in _indexable_under(
+            options.root, ignore_spec, project_root=options.root
+        )
+    ]
+    await migrate_absolute_paths(stack.storage, stack.parser, options.root, candidates)
 
     if validated_path:
         return await _sync_validated_path(stack, validated_path, options, ignore_spec)
