@@ -8,7 +8,11 @@ class IParser(ABC):
 
     @abstractmethod
     async def distill_file(
-        self, file_path: str, *, stored_path: str | None = None
+        self,
+        file_path: str,
+        *,
+        stored_path: str | None = None,
+        raise_on_failure: bool = False,
     ) -> List[KnowledgeUnit]:
         pass  # pragma: no cover
 

@@ -16,6 +16,7 @@ from code_rag.parsers.languages import EXTENSION_TO_LANGUAGE
 from code_rag.services.dependencies import sync_dependencies
 from code_rag.services.indexing import IndexStack, sync_project
 from code_rag.services.path_migration import migrate_absolute_paths
+from code_rag.storage.duckdb_impl import DuckDBStorage
 
 logger = logging.getLogger(__name__)
 
@@ -159,20 +160,24 @@ async def run_sync(stack: IndexStack, options: SyncOptions) -> SyncResult:
         logger.warning("Dependency discovery failed: %s", de)
 
     ignore_spec = load_ignore_patterns(options.root)
-    candidates = [
-        Path(item)
-        for item in _indexable_under(
-            options.root, ignore_spec, project_root=options.root
-        )
-    ]
     migration_ran = False
-    try:
-        migration_ran = await migrate_absolute_paths(
-            stack.storage, stack.parser, options.root, candidates
-        )
-    except Exception:
-        logger.exception("Path migration failed; continuing sync")
-        migration_ran = True
+    if (
+        isinstance(stack.storage, DuckDBStorage)
+        and not await stack.storage.paths_migration_done()
+    ):
+        candidates = [
+            Path(item)
+            for item in _indexable_under(
+                options.root, ignore_spec, project_root=options.root
+            )
+        ]
+        try:
+            migration_ran = await migrate_absolute_paths(
+                stack.storage, stack.parser, options.root, candidates
+            )
+        except Exception:
+            logger.exception("Path migration failed; continuing sync")
+            migration_ran = True
     if migration_ran and not options.index_all:
         print(
             "Run sync --all to reindex the project after path migration.",

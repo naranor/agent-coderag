@@ -46,7 +46,11 @@ class TreeSitterParser(IParser):
             ) from e
 
     async def distill_file(
-        self, file_path: str, *, stored_path: str | None = None
+        self,
+        file_path: str,
+        *,
+        stored_path: str | None = None,
+        raise_on_failure: bool = False,
     ) -> List[KnowledgeUnit]:
         identity = file_path if stored_path is None else stored_path
         ext = Path(file_path).suffix.lower()
@@ -77,6 +81,8 @@ class TreeSitterParser(IParser):
             raise
         except Exception as e:
             logger.error("Failed to parse %s: %s", file_path, e)
+            if raise_on_failure:
+                raise
             return []
 
     def _recursive_distill(self, node: Node, ctx: Dict[str, Any]) -> None:

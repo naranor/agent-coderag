@@ -12,7 +12,7 @@ from code_rag.services.path_migration import (
     claim_relative_paths,
     migrate_absolute_paths,
 )
-from code_rag.services.sync import SyncOptions, run_sync
+from code_rag.services.sync import SyncOptions, _indexable_under, run_sync
 from code_rag.storage.db_connection import AccessMode, open_db_connection
 from code_rag.storage.duckdb_impl import PATHS_MIGRATED_KEY
 from tests.embedder_stubs import StubEmbedder
@@ -234,7 +234,13 @@ async def test_parser_error_does_not_set_mark(tmp_path: Path):
     )
 
     class Boom:
-        async def distill_file(self, file_path: str, *, stored_path: str | None = None):
+        async def distill_file(
+            self,
+            file_path: str,
+            *,
+            stored_path: str | None = None,
+            raise_on_failure: bool = False,
+        ):
             raise RuntimeError("boom")
 
     try:
@@ -257,7 +263,13 @@ class _SplitParser:
     def __init__(self, python_units):
         self.python_units = python_units
 
-    async def distill_file(self, file_path: str, *, stored_path: str | None = None):
+    async def distill_file(
+        self,
+        file_path: str,
+        *,
+        stored_path: str | None = None,
+        raise_on_failure: bool = False,
+    ):
         if str(file_path).endswith(".java"):
             raise GrammarNotFoundError("java")
         return list(self.python_units)
@@ -341,7 +353,13 @@ async def test_changed_python_absolute_path_is_deleted_while_java_is_kept(
     old_java = str((tmp_path / "old" / "src" / "A.java").resolve())
 
     class Parser:
-        async def distill_file(self, file_path: str, *, stored_path: str | None = None):
+        async def distill_file(
+            self,
+            file_path: str,
+            *,
+            stored_path: str | None = None,
+            raise_on_failure: bool = False,
+        ):
             if str(file_path).endswith(".java"):
                 raise GrammarNotFoundError("java")
             return []
@@ -429,6 +447,86 @@ async def test_partial_sync_recommends_sync_all_after_migration(tmp_path: Path, 
             SyncOptions(root=root, path=None, index_all=True),
         )
         assert "sync --all" not in capsys.readouterr().err
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_swallowed_parse_error_keeps_absolute_path_during_migration(
+    tmp_path: Path,
+):
+    root = tmp_path / "proj"
+    good_file = root / "src" / "a.py"
+    missing_file = root / "src" / "b.py"
+    good_file.parent.mkdir(parents=True)
+    good_file.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    parsed = await MultiParser().distill_file(str(good_file.resolve()))
+    assert parsed
+    old_good = str((tmp_path / "old" / "src" / "a.py").resolve())
+    old_bad = str((tmp_path / "old" / "src" / "b.py").resolve())
+
+    storage = await open_db_connection(
+        root / ".coderag.db",
+        StubEmbedder(),
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
+    try:
+        for unit in parsed:
+            unit.summary = "kept"
+            unit.path = old_good
+            unit.id = f"{old_good}:{unit.name}"
+            await storage.upsert_unit(unit, vector=[0.0] * 384)
+        await storage.upsert_unit(_unit(f"{old_bad}:beta", old_bad, "orphan-hash"))
+
+        await migrate_absolute_paths(
+            storage,
+            MultiParser(),
+            root,
+            [good_file, missing_file],
+        )
+        paths = {
+            row[0] for row in storage.conn.execute("SELECT path FROM units").fetchall()
+        }
+        assert "src/a.py" in paths
+        assert old_bad in paths
+        assert old_good not in paths
+        assert await storage.paths_migration_done() is False
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_migration_walk_when_mark_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    root = tmp_path / "proj"
+    source = root / "src" / "a.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    storage = await open_db_connection(
+        root / ".coderag.db",
+        StubEmbedder(),
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
+    intelligence = MagicMock()
+    intelligence.summarize = AsyncMock(return_value="kept")
+    calls: list[tuple] = []
+
+    def counting(walk_root, ignore_spec, *, project_root):
+        calls.append((walk_root, project_root))
+        return _indexable_under(walk_root, ignore_spec, project_root=project_root)
+
+    monkeypatch.setattr("code_rag.services.sync._indexable_under", counting)
+    try:
+        await storage.mark_paths_migrated()
+        await run_sync(
+            IndexStack(storage, MultiParser(), intelligence),
+            SyncOptions(root=root, path=str(source), index_all=False),
+        )
+        assert calls == []
     finally:
         await storage.close()
 

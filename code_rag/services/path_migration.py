@@ -86,7 +86,7 @@ async def migrate_absolute_paths(
     parsed: list[tuple[Path, Counter[str]]] = []
     for path in files:
         try:
-            units = await parser.distill_file(str(path))
+            units = await parser.distill_file(str(path), raise_on_failure=True)
         except GrammarNotFoundError:
             logger.warning("Skipping unparsed file during path migration: %s", path)
             skipped_suffixes.add(_suffix(str(path)))
