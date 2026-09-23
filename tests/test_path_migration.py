@@ -1,11 +1,12 @@
 from collections import Counter
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from code_rag.core.models import KnowledgeUnit, Relation, RelationType, UnitKind
 from code_rag.parsers.multi_parser import MultiParser
+from code_rag.parsers.tree_sitter import GrammarNotFoundError
 from code_rag.services.indexing import IndexStack
 from code_rag.services.path_migration import (
     claim_relative_paths,
@@ -195,7 +196,7 @@ async def test_sync_migrates_once_without_calling_llm(tmp_path: Path):
             row[0] for row in storage.conn.execute("SELECT path FROM units").fetchall()
         }
         assert "src/a.py" in paths
-        assert leftover in paths
+        assert leftover not in paths
         assert old_path not in paths
         ids = {
             row[0]
@@ -239,15 +240,200 @@ async def test_parser_error_does_not_set_mark(tmp_path: Path):
     try:
         gone = str((tmp_path / "gone" / "a.py").resolve())
         await storage.upsert_unit(_unit(f"{gone}:alpha", gone, "h1"))
-        with pytest.raises(RuntimeError, match="boom"):
-            await migrate_absolute_paths(
-                storage,
-                Boom(),
-                tmp_path / "proj",
-                [tmp_path / "proj" / "a.py"],
-            )
+        await migrate_absolute_paths(
+            storage,
+            Boom(),
+            tmp_path / "proj",
+            [tmp_path / "proj" / "a.py"],
+        )
         assert await storage.paths_migration_done() is False
         left = storage.conn.execute("SELECT path FROM units").fetchone()
         assert left[0] == gone
+    finally:
+        await storage.close()
+
+
+class _SplitParser:
+    def __init__(self, python_units):
+        self.python_units = python_units
+
+    async def distill_file(self, file_path: str, *, stored_path: str | None = None):
+        if str(file_path).endswith(".java"):
+            raise GrammarNotFoundError("java")
+        return list(self.python_units)
+
+
+@pytest.mark.asyncio
+async def test_missing_java_grammar_keeps_python_commit(tmp_path: Path):
+    root = tmp_path / "proj"
+    python_file = root / "src" / "a.py"
+    java_file = root / "src" / "A.java"
+    python_file.parent.mkdir(parents=True)
+    python_file.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    java_file.write_text("class A {}\n", encoding="utf-8")
+
+    parsed = await MultiParser().distill_file(str(python_file.resolve()))
+    assert parsed
+    old_python = str((tmp_path / "old" / "src" / "a.py").resolve())
+    old_java = str((tmp_path / "old" / "src" / "A.java").resolve())
+
+    storage = await open_db_connection(
+        root / ".coderag.db",
+        StubEmbedder(),
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
+    try:
+        for unit in parsed:
+            unit.summary = "kept"
+            unit.path = old_python
+            unit.id = f"{old_python}:{unit.name}"
+            await storage.upsert_unit(unit, vector=[0.0] * 384)
+        await storage.upsert_unit(_unit(f"{old_java}:A", old_java, "java-hash"))
+
+        await migrate_absolute_paths(
+            storage,
+            _SplitParser(parsed),
+            root,
+            [python_file, java_file],
+        )
+        paths = {
+            row[0] for row in storage.conn.execute("SELECT path FROM units").fetchall()
+        }
+        assert "src/a.py" in paths
+        assert old_java in paths
+        assert await storage.paths_migration_done() is False
+
+        await migrate_absolute_paths(
+            storage,
+            _SplitParser(parsed),
+            root,
+            [python_file, java_file],
+        )
+        python_ids = storage.conn.execute(
+            "SELECT id FROM units WHERE path = ?",
+            ["src/a.py"],
+        ).fetchall()
+        assert python_ids
+        assert all(row[0].startswith("src/a.py:") for row in python_ids)
+        java_left = storage.conn.execute(
+            "SELECT path FROM units WHERE path = ?",
+            [old_java],
+        ).fetchall()
+        assert java_left == [(old_java,)]
+        assert await storage.paths_migration_done() is False
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_changed_python_absolute_path_is_deleted_while_java_is_kept(
+    tmp_path: Path,
+):
+    """A moved file whose hash changed leaves an orphan. Same-suffix parse success deletes it."""
+    root = tmp_path / "proj"
+    python_file = root / "src" / "a.py"
+    java_file = root / "src" / "A.java"
+    python_file.parent.mkdir(parents=True)
+    python_file.write_text("def alpha():\n    return 2\n", encoding="utf-8")
+    java_file.write_text("class A {}\n", encoding="utf-8")
+    old_python = str((tmp_path / "old" / "src" / "a.py").resolve())
+    old_java = str((tmp_path / "old" / "src" / "A.java").resolve())
+
+    class Parser:
+        async def distill_file(self, file_path: str, *, stored_path: str | None = None):
+            if str(file_path).endswith(".java"):
+                raise GrammarNotFoundError("java")
+            return []
+
+    storage = await open_db_connection(
+        root / ".coderag.db",
+        StubEmbedder(),
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
+    try:
+        py = _unit(f"{old_python}:alpha", old_python, "stale-hash")
+        jv = _unit(f"{old_java}:A", old_java, "java-hash")
+        jv.relations = [Relation(from_id=jv.id, to_id=py.id, type=RelationType.CALLS)]
+        await storage.upsert_unit(py, vector=[0.0] * 384)
+        await storage.upsert_unit(jv, vector=[0.0] * 384)
+        await migrate_absolute_paths(storage, Parser(), root, [python_file, java_file])
+        paths = {
+            row[0] for row in storage.conn.execute("SELECT path FROM units").fetchall()
+        }
+        assert old_python not in paths
+        assert old_java in paths
+        embeds = storage.conn.execute("SELECT id FROM unit_embeddings").fetchall()
+        assert [row[0] for row in embeds] == [jv.id]
+        rels = storage.conn.execute("SELECT from_id, to_id FROM relations").fetchall()
+        assert rels == []
+        assert await storage.paths_migration_done() is False
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_partial_sync_recommends_sync_all_after_migration(tmp_path: Path, capsys):
+    root = tmp_path / "proj"
+    source = root / "src" / "a.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    old = str((tmp_path / "old" / "a.py").resolve())
+    storage = await open_db_connection(
+        root / ".coderag.db",
+        StubEmbedder(),
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
+    intelligence = MagicMock()
+    intelligence.summarize = AsyncMock(return_value="kept")
+    try:
+        await storage.upsert_unit(_unit(f"{old}:alpha", old, "stale"))
+        await run_sync(
+            IndexStack(storage, MultiParser(), intelligence),
+            SyncOptions(root=root, path=str(source), index_all=False),
+        )
+        assert "sync --all" in capsys.readouterr().err
+        capsys.readouterr()
+        await run_sync(
+            IndexStack(storage, MultiParser(), intelligence),
+            SyncOptions(root=root, path=None, index_all=True),
+        )
+        assert "sync --all" not in capsys.readouterr().err
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_sync_indexes_when_migration_raises(tmp_path: Path):
+    root = tmp_path / "proj"
+    source = root / "src" / "a.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    storage = await open_db_connection(
+        root / ".coderag.db",
+        StubEmbedder(),
+        mode=AccessMode.READ_WRITE,
+        connect_timeout_seconds=0,
+    )
+    intelligence = MagicMock()
+    intelligence.summarize = AsyncMock(return_value="kept")
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("migration failed")
+
+    try:
+        with patch(
+            "code_rag.services.sync.migrate_absolute_paths",
+            new=boom,
+        ):
+            result = await run_sync(
+                IndexStack(storage, MultiParser(), intelligence),
+                SyncOptions(root=root, path=None, index_all=True),
+            )
+        assert result.status == "success"
+        rows = storage.conn.execute("SELECT path FROM units").fetchall()
+        assert {row[0] for row in rows} == {"src/a.py"}
     finally:
         await storage.close()

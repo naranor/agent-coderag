@@ -623,6 +623,38 @@ class DuckDBStorage(IStorage):
         """Record that path migration is finished. Does not rewrite rows."""
         await self._with_conn(lambda: _meta_set(self.conn, PATHS_MIGRATED_KEY, "1"))
 
+    async def delete_absolute_paths(self, paths: list[str]) -> None:
+        """Drop units, their embeddings, and relations for these stored paths."""
+
+        def _delete():
+            self.conn.execute("BEGIN TRANSACTION")
+            try:
+                has_embeddings = _table_exists(self.conn, "unit_embeddings")
+                for stored in paths:
+                    if has_embeddings:
+                        self.conn.execute(
+                            """
+                            DELETE FROM unit_embeddings
+                            WHERE id IN (SELECT id FROM units WHERE path = ?)
+                            """,
+                            [stored],
+                        )
+                    self.conn.execute(
+                        """
+                        DELETE FROM relations
+                        WHERE from_id IN (SELECT id FROM units WHERE path = ?)
+                           OR to_id IN (SELECT id FROM units WHERE path = ?)
+                        """,
+                        [stored, stored],
+                    )
+                    self.conn.execute("DELETE FROM units WHERE path = ?", [stored])
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+
+        await self._with_conn(_delete)
+
     async def commit_path_migration(self, mapping: dict[str, str]) -> None:
         """Rewrite each path in its own transaction, then set the mark.
 

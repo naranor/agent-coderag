@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from pathlib import Path
 
 from code_rag.core.models import KnowledgeUnit
+from code_rag.parsers.tree_sitter import GrammarNotFoundError
 from code_rag.paths import project_relative_posix
 from code_rag.storage.duckdb_impl import DuckDBStorage
+
+logger = logging.getLogger(__name__)
 
 
 def _groups(units: list[KnowledgeUnit]) -> dict[str, Counter[str]]:
@@ -62,20 +66,56 @@ def claim_relative_paths(
     return mapping
 
 
+def _suffix(path: str) -> str:
+    return Path(path).suffix.lower()
+
+
 async def migrate_absolute_paths(
     storage, parser, root: Path, files: list[Path]
-) -> None:
+) -> bool:
     if not isinstance(storage, DuckDBStorage):
-        return
+        return False
     if await storage.paths_migration_done():
-        return
+        return False
     groups = _groups(await storage.list_units())
     if not groups:
         await storage.commit_path_migration({})
-        return
+        return True
+    incomplete = False
+    skipped_suffixes: set[str] = set()
     parsed: list[tuple[Path, Counter[str]]] = []
     for path in files:
-        units = await parser.distill_file(str(path))
+        try:
+            units = await parser.distill_file(str(path))
+        except GrammarNotFoundError:
+            logger.warning("Skipping unparsed file during path migration: %s", path)
+            skipped_suffixes.add(_suffix(str(path)))
+            incomplete = True
+            continue
+        except Exception:
+            logger.exception("Path migration could not parse %s", path)
+            skipped_suffixes.add(_suffix(str(path)))
+            incomplete = True
+            continue
         parsed.append((path, Counter(unit.code_hash for unit in units)))
     mapping = claim_relative_paths(groups, root, parsed)
-    await storage.commit_path_migration(mapping)
+    failed_commits: set[str] = set()
+    for old, new in mapping.items():
+        try:
+            await storage.commit_rewritten_path(old, new)
+        except Exception:
+            logger.exception("Path migration failed for %s", old)
+            failed_commits.add(old)
+            incomplete = True
+    orphans = [
+        old
+        for old in groups
+        if old not in mapping
+        and old not in failed_commits
+        and _suffix(old) not in skipped_suffixes
+    ]
+    if orphans:
+        await storage.delete_absolute_paths(orphans)
+    if not incomplete:
+        await storage.mark_paths_migrated()
+    return True

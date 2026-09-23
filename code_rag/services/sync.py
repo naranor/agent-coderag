@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -164,7 +165,19 @@ async def run_sync(stack: IndexStack, options: SyncOptions) -> SyncResult:
             options.root, ignore_spec, project_root=options.root
         )
     ]
-    await migrate_absolute_paths(stack.storage, stack.parser, options.root, candidates)
+    migration_ran = False
+    try:
+        migration_ran = await migrate_absolute_paths(
+            stack.storage, stack.parser, options.root, candidates
+        )
+    except Exception:
+        logger.exception("Path migration failed; continuing sync")
+        migration_ran = True
+    if migration_ran and not options.index_all:
+        print(
+            "Run sync --all to reindex the project after path migration.",
+            file=sys.stderr,
+        )
 
     if validated_path:
         return await _sync_validated_path(stack, validated_path, options, ignore_spec)
