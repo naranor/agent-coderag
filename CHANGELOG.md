@@ -1,7 +1,10 @@
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-23
+
 ### Added
 - Index paths are stored relative to the project root. The first `sync` rewrites an absolute index in place when file hashes match, without re-distilling unchanged units. `relative_paths` (config, `CodeRAG(relative_paths=...)`, and `search --relative-paths`) returns those relative paths; the default search path is absolute under the current root.
+- A partial `sync` that migrates absolute paths recommends `sync --all`. Absolute paths that still do not match after every file of that suffix parsed are removed with their embeddings and relations. A file that cannot be parsed does not undo paths already migrated and does not mark migration done.
 
 ### Fixed
 - Gitignore patterns are matched against the path relative to the project root, so a worktree checked out under a gitignored `.worktrees/` directory is indexed.
