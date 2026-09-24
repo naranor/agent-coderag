@@ -1,7 +1,7 @@
 import json
 import os
 import subprocess
-import sys
+import sysconfig
 import threading
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -129,7 +129,7 @@ def run_cli(
     env = os.environ.copy()
     env[key] = str(home)
     name = "agent-coderag.exe" if os.name == "nt" else "agent-coderag"
-    script = str(Path(sys.executable).resolve().parent / name)
+    script = str(Path(sysconfig.get_path("scripts")) / name)
     return subprocess.run(
         [script, *args],
         cwd=cwd,
