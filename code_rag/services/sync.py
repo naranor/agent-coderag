@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -10,9 +11,12 @@ from code_rag.api.models import SyncFileError, SyncResult
 from code_rag.core.constants import MAX_CONCURRENT_TASKS
 from code_rag.core.exceptions import DiscoveryError
 from code_rag.core.utils import validate_path
+from code_rag.paths import project_relative_posix
 from code_rag.parsers.languages import EXTENSION_TO_LANGUAGE
 from code_rag.services.dependencies import sync_dependencies
 from code_rag.services.indexing import IndexStack, sync_project
+from code_rag.services.path_migration import migrate_absolute_paths
+from code_rag.storage.duckdb_impl import DuckDBStorage
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +56,25 @@ def load_ignore_patterns(root: Path) -> pathspec.PathSpec:
     return pathspec.PathSpec.from_lines("gitignore", lines + common_excludes)
 
 
-def should_index(path: Path, ignore_spec: Optional[pathspec.PathSpec] = None) -> bool:
-    """Filters files that should NOT be indexed."""
-    path_str = str(path).replace(os.sep, "/")
+def should_index(
+    path: Path,
+    ignore_spec: Optional[pathspec.PathSpec] = None,
+    *,
+    root: Optional[Path] = None,
+) -> bool:
+    """Filters files that should NOT be indexed.
 
-    if ignore_spec and ignore_spec.match_file(path_str):
+    When ``root`` is set, gitignore sees only the posix path relative to ``root``.
+    """
+    if root is not None:
+        try:
+            match_target = project_relative_posix(path, root)
+        except ValueError:
+            return False
+    else:
+        match_target = str(path).replace(os.sep, "/")
+
+    if ignore_spec and ignore_spec.match_file(match_target):
         return False
 
     return path.suffix.lower() in EXTENSION_TO_LANGUAGE
@@ -70,9 +88,16 @@ def _result_from_failures(
     return SyncResult(status=status, indexed_files=indexed_files, errors=errors)
 
 
-def _indexable_under(root: Path, ignore_spec: pathspec.PathSpec) -> list[str]:
+def _indexable_under(
+    walk_root: Path,
+    ignore_spec: pathspec.PathSpec,
+    *,
+    project_root: Path,
+) -> list[str]:
     return [
-        str(p) for p in root.rglob("*") if p.is_file() and should_index(p, ignore_spec)
+        str(p)
+        for p in walk_root.rglob("*")
+        if p.is_file() and should_index(p, ignore_spec, root=project_root)
     ]
 
 
@@ -81,8 +106,14 @@ async def _run_project_sync(
     paths: list[str],
     options: SyncOptions,
 ) -> list[tuple[str, str]]:
+    rooted = IndexStack(
+        stack.storage,
+        stack.parser,
+        stack.intelligence,
+        root=options.root,
+    )
     return await sync_project(
-        stack,
+        rooted,
         paths,
         force_distill=options.force,
         index_all=options.index_all,
@@ -98,12 +129,12 @@ async def _sync_validated_path(
 ) -> SyncResult:
     target_path = Path(validated_path)
     if target_path.is_file():
-        if not should_index(target_path, ignore_spec):
+        if not should_index(target_path, ignore_spec, root=options.root):
             return _result_from_failures(0, [])
         failures = await _run_project_sync(stack, [str(target_path)], options)
         return _result_from_failures(1, failures)
 
-    paths = _indexable_under(target_path, ignore_spec)
+    paths = _indexable_under(target_path, ignore_spec, project_root=options.root)
     if not paths and not options.index_all:
         return _result_from_failures(len(paths), [])
     failures = await _run_project_sync(stack, paths, options)
@@ -129,11 +160,34 @@ async def run_sync(stack: IndexStack, options: SyncOptions) -> SyncResult:
         logger.warning("Dependency discovery failed: %s", de)
 
     ignore_spec = load_ignore_patterns(options.root)
+    migration_ran = False
+    if (
+        isinstance(stack.storage, DuckDBStorage)
+        and not await stack.storage.paths_migration_done()
+    ):
+        candidates = [
+            Path(item)
+            for item in _indexable_under(
+                options.root, ignore_spec, project_root=options.root
+            )
+        ]
+        try:
+            migration_ran = await migrate_absolute_paths(
+                stack.storage, stack.parser, options.root, candidates
+            )
+        except Exception:
+            logger.exception("Path migration failed; continuing sync")
+            migration_ran = True
+    if migration_ran and not options.index_all:
+        print(
+            "Run sync --all to reindex the project after path migration.",
+            file=sys.stderr,
+        )
 
     if validated_path:
         return await _sync_validated_path(stack, validated_path, options, ignore_spec)
 
-    paths = _indexable_under(options.root, ignore_spec)
+    paths = _indexable_under(options.root, ignore_spec, project_root=options.root)
     failures = await _run_project_sync(stack, paths, options)
     return _result_from_failures(len(paths), failures)
 

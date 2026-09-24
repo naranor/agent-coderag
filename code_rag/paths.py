@@ -13,6 +13,11 @@ def default_db_path(root: Path | None = None) -> Path:
     return root_path / ".coderag.db"
 
 
+def project_relative_posix(path: Path, root: Path) -> str:
+    """Posix path of ``path`` relative to ``root``. Raises ValueError when outside ``root``."""
+    return path.resolve().relative_to(root.resolve()).as_posix()
+
+
 def resolve_db_path(db: str | Path | None, *, root: Path | None = None) -> Path:
     if db is not None:
         path = Path(db)

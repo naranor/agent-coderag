@@ -23,6 +23,7 @@ class DistillerConfig(BaseModel):
     embedding_key: Optional[str] = None
     embedding_model: Optional[str] = None
     embedding_provider: Optional[str] = None
+    relative_paths: bool = False
 
     @field_validator(
         "model",

@@ -7,7 +7,13 @@ class IParser(ABC):
     """Interface for extracting structure from code."""
 
     @abstractmethod
-    async def distill_file(self, file_path: str) -> List[KnowledgeUnit]:
+    async def distill_file(
+        self,
+        file_path: str,
+        *,
+        stored_path: str | None = None,
+        raise_on_failure: bool = False,
+    ) -> List[KnowledgeUnit]:
         pass  # pragma: no cover
 
 

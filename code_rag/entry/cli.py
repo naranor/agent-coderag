@@ -46,6 +46,7 @@ __all__ = [
 
 
 def _coderag_from_args(args) -> CodeRAG:
+    relative_paths = getattr(args, "relative_paths", None)
     return CodeRAG(
         db=args.db,
         onnx=getattr(args, "onnx", None),
@@ -54,6 +55,7 @@ def _coderag_from_args(args) -> CodeRAG:
             getattr(args, "connect_timeout", DEFAULT_CONNECT_TIMEOUT_SECONDS)
         ),
         allow_build_execution=bool(getattr(args, "allow_build_execution", False)),
+        relative_paths=True if relative_paths else None,
     )
 
 
@@ -70,9 +72,14 @@ def load_ignore_patterns() -> pathspec.PathSpec:
     return sync_service.load_ignore_patterns(Path.cwd())
 
 
-def should_index(path: Path, ignore_spec: Optional[pathspec.PathSpec] = None) -> bool:
+def should_index(
+    path: Path,
+    ignore_spec: Optional[pathspec.PathSpec] = None,
+    *,
+    root: Optional[Path] = None,
+) -> bool:
     """Filters files that should NOT be indexed."""
-    return sync_service.should_index(path, ignore_spec)
+    return sync_service.should_index(path, ignore_spec, root=root)
 
 
 def _emit_sync_outcome(result: SyncResult, *, json_mode: bool, label: str) -> None:

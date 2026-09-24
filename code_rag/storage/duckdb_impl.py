@@ -32,6 +32,7 @@ class AccessMode(str, Enum):
 
 META_DIM_KEY = "embedding_dim"
 META_MODEL_KEY = "embedding_model"
+PATHS_MIGRATED_KEY = "paths_migrated"
 
 # Canonical list of columns for units table to ensure robust mapping
 UNIT_COLUMNS = [
@@ -97,6 +98,47 @@ def _meta_set(conn, key: str, value: str) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO index_meta (key, value) VALUES (?, ?)",
         [key, value],
+    )
+
+
+def _rewrite_path_prefix(conn, old: str, new: str, *, has_embeddings: bool) -> None:
+    prefix = old + ":"
+    start = len(old) + 1  # 1-based index of the colon; remainder includes ':'
+    conn.execute(
+        """
+        UPDATE units
+        SET path = ?,
+            id = CASE
+                WHEN starts_with(id, ?) THEN ? || substring(id, ?)
+                ELSE id
+            END
+        WHERE path = ?
+        """,
+        [new, prefix, new, start, old],
+    )
+    if has_embeddings:
+        conn.execute(
+            """
+            UPDATE unit_embeddings
+            SET id = ? || substring(id, ?)
+            WHERE starts_with(id, ?)
+            """,
+            [new, start, prefix],
+        )
+    conn.execute(
+        """
+        UPDATE relations
+        SET from_id = CASE
+                WHEN starts_with(from_id, ?) THEN ? || substring(from_id, ?)
+                ELSE from_id
+            END,
+            to_id = CASE
+                WHEN starts_with(to_id, ?) THEN ? || substring(to_id, ?)
+                ELSE to_id
+            END
+        WHERE starts_with(from_id, ?) OR starts_with(to_id, ?)
+        """,
+        [prefix, new, start, prefix, new, start, prefix, prefix],
     )
 
 
@@ -557,6 +599,70 @@ class DuckDBStorage(IStorage):
 
         await self._with_conn(_delete)
         logger.debug("Cleaned up stale units for %s", file_path)
+
+    async def paths_migration_done(self) -> bool:
+        value = await self._with_conn(lambda: _meta_get(self.conn, PATHS_MIGRATED_KEY))
+        return value == "1"
+
+    async def commit_rewritten_path(self, old: str, new: str) -> None:
+        """Commit one absolute path rewrite. Does not set the done mark."""
+
+        def _commit():
+            self.conn.execute("BEGIN TRANSACTION")
+            try:
+                has_embeddings = _table_exists(self.conn, "unit_embeddings")
+                _rewrite_path_prefix(self.conn, old, new, has_embeddings=has_embeddings)
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+
+        await self._with_conn(_commit)
+
+    async def mark_paths_migrated(self) -> None:
+        """Record that path migration is finished. Does not rewrite rows."""
+        await self._with_conn(lambda: _meta_set(self.conn, PATHS_MIGRATED_KEY, "1"))
+
+    async def delete_absolute_paths(self, paths: list[str]) -> None:
+        """Drop units, their embeddings, and relations for these stored paths."""
+
+        def _delete():
+            self.conn.execute("BEGIN TRANSACTION")
+            try:
+                has_embeddings = _table_exists(self.conn, "unit_embeddings")
+                for stored in paths:
+                    if has_embeddings:
+                        self.conn.execute(
+                            """
+                            DELETE FROM unit_embeddings
+                            WHERE id IN (SELECT id FROM units WHERE path = ?)
+                            """,
+                            [stored],
+                        )
+                    self.conn.execute(
+                        """
+                        DELETE FROM relations
+                        WHERE from_id IN (SELECT id FROM units WHERE path = ?)
+                           OR to_id IN (SELECT id FROM units WHERE path = ?)
+                        """,
+                        [stored, stored],
+                    )
+                    self.conn.execute("DELETE FROM units WHERE path = ?", [stored])
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+
+        await self._with_conn(_delete)
+
+    async def commit_path_migration(self, mapping: dict[str, str]) -> None:
+        """Rewrite each path in its own transaction, then set the mark.
+
+        A failure leaves earlier paths committed and does not set the mark.
+        """
+        for old, new in mapping.items():
+            await self.commit_rewritten_path(old, new)
+        await self.mark_paths_migrated()
 
     async def close(self) -> None:
         if self._closed:

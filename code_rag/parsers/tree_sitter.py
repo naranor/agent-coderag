@@ -45,10 +45,14 @@ class TreeSitterParser(IParser):
                 f"[MISSING DEPENDENCY] Please install: pip install {lang_config.package}"
             ) from e
 
-    async def distill_file(self, file_path: str) -> List[KnowledgeUnit]:
-        """
-        Parses a file and extracts high-level units (classes, functions).
-        """
+    async def distill_file(
+        self,
+        file_path: str,
+        *,
+        stored_path: str | None = None,
+        raise_on_failure: bool = False,
+    ) -> List[KnowledgeUnit]:
+        identity = file_path if stored_path is None else stored_path
         ext = Path(file_path).suffix.lower()
         lang_config = next((cfg for cfg in LANGUAGES if ext in cfg.extensions), None)
 
@@ -67,17 +71,18 @@ class TreeSitterParser(IParser):
             ctx: Dict[str, Any] = {
                 "source": source,
                 "config": lang_config,
-                "file_path": file_path,
+                "file_path": identity,
                 "units": units,
                 "scope": None,
             }
             self._recursive_distill(tree.root_node, ctx)
             return units
         except GrammarNotFoundError:
-            # Re-raise grammar errors so callers can handle them (e.g. CLI setup suggestion)
             raise
         except Exception as e:
             logger.error("Failed to parse %s: %s", file_path, e)
+            if raise_on_failure:
+                raise
             return []
 
     def _recursive_distill(self, node: Node, ctx: Dict[str, Any]) -> None:
