@@ -79,14 +79,16 @@ async def test_missing_java_grammar_keeps_outside_java_path(tmp_path: Path):
     python_file.parent.mkdir(parents=True)
     python_file.write_text(PYTHON, encoding="utf-8")
     java_file.write_text("class A {}\n", encoding="utf-8")
-    old_py = _outside(tmp_path, "a.py")
+    outside_py = tmp_path / "outside" / "a.py"
+    outside_py.parent.mkdir(parents=True)
+    outside_py.write_text(PYTHON, encoding="utf-8")
+    old_py = str(outside_py.resolve())
     old_java = _outside(tmp_path, "A.java")
     db = root / ".coderag.db"
     home = tmp_path / "home"
     with isolated_home_at(home):
-        await seed_parsed_units(db, STUB, [(python_file, old_py, "kept")])
-        java_seed = tmp_path / "A.java"
-        java_seed.write_text("class A {}\n", encoding="utf-8")
+        await seed_parsed_units(db, STUB, [(outside_py, old_py, "kept")])
+        seeded_hash = next(row[2] for row in await _rows(db) if row[0] == old_py)
         storage = await open_db_connection(
             db, STUB, mode=AccessMode.READ_WRITE, connect_timeout_seconds=0
         )
@@ -110,8 +112,10 @@ async def test_missing_java_grammar_keeps_outside_java_path(tmp_path: Path):
         ):
             async with CodeRAG(db=str(db), root=root) as rag:
                 await rag.sync(index_all=True)
-                paths = {row[0] for row in await _rows(db)}
-                assert "src/a.py" in paths
+                rows = await _rows(db)
+                paths = {row[0] for row in rows}
+                assert old_py not in paths
+                assert ("src/a.py", "kept", seeded_hash) in rows
                 assert old_java in paths
                 assert await _mark(db) is None
                 await rag.sync(index_all=True)
@@ -137,7 +141,10 @@ async def test_read_failure_keeps_outside_absolute_path(tmp_path: Path):
     inside = root / "src" / "a.py"
     inside.parent.mkdir(parents=True)
     inside.write_text(PYTHON, encoding="utf-8")
-    old = _outside(tmp_path, "a.py")
+    outside = tmp_path / "outside" / "a.py"
+    outside.parent.mkdir(parents=True)
+    outside.write_text(PYTHON, encoding="utf-8")
+    old = str(outside.resolve())
     db = root / ".coderag.db"
     home = tmp_path / "home"
     real_open = __import__("aiofiles").open
@@ -148,7 +155,7 @@ async def test_read_failure_keeps_outside_absolute_path(tmp_path: Path):
         return real_open(path, *args, **kwargs)
 
     with isolated_home_at(home):
-        await seed_parsed_units(db, STUB, [(inside, old, "kept")])
+        await seed_parsed_units(db, STUB, [(outside, old, "kept")])
         with patch("code_rag.parsers.tree_sitter.aiofiles.open", boom), patch(
             "code_rag.services.factory.create_embedder",
             new=AsyncMock(return_value=STUB),
