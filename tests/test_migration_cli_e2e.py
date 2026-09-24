@@ -92,7 +92,9 @@ async def test_cli_search_before_and_after_migration(tmp_path: Path):
                 ["search", "--relative-paths", "alpha"], cwd=project, home=home
             )
             assert relative.returncode == 0, relative.stderr
+            resolved = str((project / "src" / "a.py").resolve())
             assert "src/a.py" in relative.stdout
+            assert resolved not in relative.stdout
     finally:
         server.stop()
 

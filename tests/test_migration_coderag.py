@@ -119,6 +119,8 @@ async def test_missing_java_grammar_keeps_outside_java_path(tmp_path: Path):
                 assert old_java in paths
                 assert await _mark(db) is None
                 await rag.sync(index_all=True)
+        rows = await _rows(db)
+        assert ("src/a.py", "kept", seeded_hash) in rows
         storage = await open_db_connection(
             db, STUB, mode=AccessMode.READ_ONLY, connect_timeout_seconds=0
         )
