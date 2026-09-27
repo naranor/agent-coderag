@@ -150,6 +150,23 @@ def same_scope():
 
 
 @pytest.mark.asyncio
+async def test_export_does_not_wrap_inner_function_scope():
+    parser = TreeSitterParser()
+    content = "export function exportedFn() { return 1; }\n"
+    with tempfile.NamedTemporaryFile(suffix=".js", delete=False) as f:
+        f.write(content.encode("utf-8"))
+        temp_path = f.name
+
+    try:
+        units = await parser.distill_file(temp_path)
+        ids = {unit.id for unit in units}
+        assert f"{temp_path}:anonymous" in ids
+        assert f"{temp_path}:exportedFn" in ids
+    finally:
+        os.unlink(temp_path)
+
+
+@pytest.mark.asyncio
 async def test_missing_grammar():
     parser = TreeSitterParser()
     # .rb is ruby, we didn't install tree-sitter-ruby
