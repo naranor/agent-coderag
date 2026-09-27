@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-27
+
+### Fixed
+- Nested functions with the same name no longer share one unit id. The id includes each enclosing function, and a repeated name in the same scope gets a `#2`, `#3`, … suffix. A later `sync --all` no longer reindexes those files on every run.
+
 ## [1.5.0] - 2026-09-23
 
 ### Added

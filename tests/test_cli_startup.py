@@ -1,3 +1,4 @@
+import runpy
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -31,6 +32,12 @@ assert "onnxruntime" not in sys.modules
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_dunder_main_invokes_main(capsys):
+    with patch("sys.argv", ["agent-coderag"]):
+        runpy.run_path(cli_args.__file__, run_name="__main__")
+    assert "CodeRAG" in capsys.readouterr().out
 
 
 def test_main_help_and_verbose_do_not_dispatch(capsys):
