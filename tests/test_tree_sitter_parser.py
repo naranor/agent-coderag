@@ -115,6 +115,41 @@ const arrow = (x) => {
 
 
 @pytest.mark.asyncio
+async def test_nested_functions_keep_distinct_ids():
+    parser = TreeSitterParser()
+    content = """
+def test_one():
+    def helper():
+        return 1
+
+def test_two():
+    def helper():
+        return 2
+
+def same_scope():
+    def helper():
+        return 3
+
+    def helper():
+        return 4
+"""
+    with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as f:
+        f.write(content.encode("utf-8"))
+        temp_path = f.name
+
+    try:
+        units = await parser.distill_file(temp_path)
+        ids = [unit.id for unit in units]
+        assert f"{temp_path}:test_one.helper" in ids
+        assert f"{temp_path}:test_two.helper" in ids
+        assert f"{temp_path}:same_scope.helper" in ids
+        assert f"{temp_path}:same_scope.helper#2" in ids
+        assert len(ids) == len(set(ids))
+    finally:
+        os.unlink(temp_path)
+
+
+@pytest.mark.asyncio
 async def test_missing_grammar():
     parser = TreeSitterParser()
     # .rb is ruby, we didn't install tree-sitter-ruby

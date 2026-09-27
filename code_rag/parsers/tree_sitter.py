@@ -74,6 +74,7 @@ class TreeSitterParser(IParser):
                 "file_path": identity,
                 "units": units,
                 "scope": None,
+                "name_counts": {},
             }
             self._recursive_distill(tree.root_node, ctx)
             return units
@@ -87,21 +88,35 @@ class TreeSitterParser(IParser):
 
     def _recursive_distill(self, node: Node, ctx: Dict[str, Any]) -> None:
         config = ctx["config"]
-        current_scope = ctx["scope"]
+        child_scope = ctx["scope"]
+        child_counts = ctx["name_counts"]
 
         if node.type in config.canonical_map:
-            self._process_node(node, ctx)
-            if config.canonical_map.get(node.type) == "CLASS":
-                node_name = self._resolve_name(node)
-                scope = ctx["scope"]
-                current_scope = f"{scope}.{node_name}" if scope else node_name
+            qname = self._qualified_name(node, ctx)
+            self._process_node(node, ctx, qname)
+            if config.canonical_map.get(node.type) in ("CLASS", "FUNCTION", "METHOD"):
+                child_scope = qname
+                child_counts = {}
 
-        # Recurse into children with updated scope
-        child_ctx = {**ctx, "scope": current_scope}
+        child_ctx = {**ctx, "scope": child_scope, "name_counts": child_counts}
         for child in node.children:
             self._recursive_distill(child, child_ctx)
 
-    def _process_node(self, node: Node, ctx: Dict[str, Any]) -> None:
+    def _qualified_name(self, node: Node, ctx: Dict[str, Any]) -> str:
+        """Qualified id segment. Enclosing functions are part of the scope.
+
+        A repeated name in the same scope gets ``#2``, ``#3``, … so two
+        different bodies cannot share one primary key.
+        """
+        node_name = self._resolve_name(node)
+        counts: Dict[str, int] = ctx["name_counts"]
+        counts[node_name] = counts.get(node_name, 0) + 1
+        seen = counts[node_name]
+        label = node_name if seen == 1 else f"{node_name}#{seen}"
+        scope = ctx["scope"]
+        return f"{scope}.{label}" if scope else label
+
+    def _process_node(self, node: Node, ctx: Dict[str, Any], qname: str) -> None:
         """Processes a single node and adds it to the units list."""
         node_name = self._resolve_name(node)
         docstring = self._extract_docstring(node)
@@ -113,9 +128,6 @@ class TreeSitterParser(IParser):
 
         kind = self._determine_kind(node, ctx["config"])
 
-        # Stable ID based on qualified name
-        scope = ctx["scope"]
-        qname = f"{scope}.{node_name}" if scope else node_name
         unit_id = f"{ctx['file_path']}:{qname}"
 
         unit = KnowledgeUnit(
