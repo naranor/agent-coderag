@@ -118,3 +118,7 @@ def main() -> None:
     except Exception as exc:
         logging.getLogger(__name__).error("Unexpected error: %s", exc)
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

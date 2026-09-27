@@ -109,6 +109,7 @@ def tokenize(text: str) -> list[str]:
 
     clear_res = run_cli("config", "--clear-embedding")
     assert clear_res.returncode == 0, clear_res.stderr
+    assert "Config updated." in clear_res.stdout
 
 
 def teardown_module(module):
@@ -151,10 +152,12 @@ def run_cli(*args):
 
 
 def test_e2e_setup_command():
-    """Verify setup command executes under isolated cache."""
+    """Verify setup runs and reports completion. A silent process must fail."""
     res = run_cli("setup")
-    # May download or no-op if files already seeded; allow non-zero on network errors.
-    assert res.returncode in (0, 1), res.stderr
+    assert res.returncode == 0, res.stderr
+    assert "Setting up agent-coderag" in res.stdout
+    assert "Setup complete." in res.stdout
+    assert _ONNX_PATH is not None and _ONNX_PATH.is_file()
 
 
 def test_e2e_sync_and_db_state():
@@ -169,8 +172,7 @@ def test_e2e_sync_and_db_state():
     names = {row[0] for row in conn.execute("SELECT name FROM units").fetchall()}
     embed_n = conn.execute("SELECT count(*) FROM unit_embeddings").fetchone()[0]
     conn.close()
-    assert "Greeter" in names
-    assert "tokenize" in names
+    assert {"Greeter", "say_hello", "top_level_fn", "tokenize"} <= names
     assert embed_n == len(names)
 
 
@@ -178,6 +180,7 @@ def test_e2e_search_command_execution():
     """Verify search command executes without errors and finds our dummy code."""
     res = run_cli("search", "Greeter")
     assert res.returncode == 0, res.stderr
+    assert "[class] Greeter" in res.stdout
 
 
 def test_e2e_json_output():
@@ -188,8 +191,9 @@ def test_e2e_json_output():
 
     data = json.loads(res.stdout)
     assert isinstance(data, list)
-    names = {item.get("name") for item in data}
-    assert "Greeter" in names or any("Greeter" in str(item) for item in data)
+    assert any(
+        item.get("name") == "Greeter" and item.get("kind") == "class" for item in data
+    )
 
 
 def test_e2e_api_extraction():
@@ -197,3 +201,4 @@ def test_e2e_api_extraction():
     api_res = run_cli("api", "json")
     assert api_res.returncode == 0, api_res.stderr
     assert "Public API" in api_res.stdout
+    assert "json" in api_res.stdout
