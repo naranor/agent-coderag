@@ -2,10 +2,10 @@ import logging
 import json
 import importlib
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from ..core.exceptions import IntelligenceError
 from ..core.interfaces import IIntelligence
-from ..core.constants import LLM_REQUEST_TIMEOUT
+from ..core.constants import LLM_REQUEST_TIMEOUT, MAX_CONCURRENT_TASKS
 from .embedder import get_global_dir
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,8 @@ class DistillerConfig(BaseModel):
     api_key: Optional[str] = None
     provider: Optional[str] = None
     temperature: float = 0.0
+    timeout: int = Field(default=LLM_REQUEST_TIMEOUT, gt=0)
+    max_concurrency: int = Field(default=MAX_CONCURRENT_TASKS, gt=0)
     embedding_base: Optional[str] = None
     embedding_key: Optional[str] = None
     embedding_model: Optional[str] = None
@@ -122,7 +124,7 @@ SUMMARY:
             api_base=self.config.api_base,
             api_key=self.config.api_key,
             temperature=self.config.temperature,
-            timeout=LLM_REQUEST_TIMEOUT,
+            timeout=self.config.timeout,
             custom_llm_provider=self.config.provider,
         )
 

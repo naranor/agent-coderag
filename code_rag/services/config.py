@@ -2,6 +2,17 @@ from code_rag.core.exceptions import IntelligenceError
 from code_rag.intelligence.distiller import DistillerConfig
 
 
+def _validate_positive_int(name: str, value: int | None) -> None:
+    if value is not None and (isinstance(value, bool) or value <= 0):
+        raise IntelligenceError(f"{name} must be greater than 0")
+
+
+def _set_non_none(config: DistillerConfig, updates: dict[str, object]) -> None:
+    for attr, value in updates.items():
+        if value is not None:
+            setattr(config, attr, value)
+
+
 def apply_config_updates(  # pylint: disable=too-many-arguments
     config: DistillerConfig,
     *,
@@ -9,20 +20,27 @@ def apply_config_updates(  # pylint: disable=too-many-arguments
     key: str | None = None,
     model: str | None = None,
     provider: str | None = None,
+    timeout: int | None = None,
+    max_concurrency: int | None = None,
     embedding_url: str | None = None,
     embedding_key: str | None = None,
     embedding_model: str | None = None,
     embedding_provider: str | None = None,
     clear_embedding: bool = False,
 ) -> DistillerConfig:
-    if url is not None:
-        config.api_base = url
-    if key is not None:
-        config.api_key = key
-    if model is not None:
-        config.model = model
-    if provider is not None:
-        config.provider = provider
+    _validate_positive_int("timeout", timeout)
+    _validate_positive_int("max_concurrency", max_concurrency)
+    _set_non_none(
+        config,
+        {
+            "api_base": url,
+            "api_key": key,
+            "model": model,
+            "provider": provider,
+            "timeout": timeout,
+            "max_concurrency": max_concurrency,
+        },
+    )
 
     if clear_embedding:
         config.embedding_base = None
@@ -30,22 +48,21 @@ def apply_config_updates(  # pylint: disable=too-many-arguments
         config.embedding_model = None
         config.embedding_provider = None
 
-    if embedding_url is not None:
-        config.embedding_base = embedding_url
-    if embedding_key is not None:
-        config.embedding_key = embedding_key
-    if embedding_model is not None:
-        config.embedding_model = embedding_model
-    if embedding_provider is not None:
-        config.embedding_provider = embedding_provider
+    _set_non_none(
+        config,
+        {
+            "embedding_base": embedding_url,
+            "embedding_key": embedding_key,
+            "embedding_model": embedding_model,
+            "embedding_provider": embedding_provider,
+        },
+    )
 
     # Re-run validators after raw assignment (blank → None)
     if isinstance(config, DistillerConfig):
         config = DistillerConfig.model_validate(config.model_dump())
 
-    base_set = config.embedding_base is not None
-    model_set = config.embedding_model is not None
-    if base_set != model_set:
+    if (config.embedding_base is not None) != (config.embedding_model is not None):
         raise IntelligenceError(
             "embedding_base and embedding_model must both be set or both unset"
         )
@@ -57,6 +74,8 @@ def _has_updates(  # pylint: disable=too-many-arguments,too-many-positional-argu
     key,
     model,
     provider,
+    timeout,
+    max_concurrency,
     embedding_url,
     embedding_key,
     embedding_model,
@@ -69,7 +88,14 @@ def _has_updates(  # pylint: disable=too-many-arguments,too-many-positional-argu
         embedding_model=embedding_model,
         embedding_provider=embedding_provider,
         clear_embedding=clear_embedding,
-    ) or distill_fields_requested(url=url, key=key, model=model, provider=provider)
+    ) or distill_fields_requested(
+        url=url,
+        key=key,
+        model=model,
+        provider=provider,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
+    )
 
 
 def embedding_fields_requested(  # pylint: disable=too-many-arguments
@@ -98,15 +124,19 @@ def distill_fields_requested(
     key: str | None = None,
     model: str | None = None,
     provider: str | None = None,
+    **extra: object,
 ) -> bool:
     """True when this config call touches LLM distillation settings."""
     return any(
-        [
-            url is not None,
-            key is not None,
-            model is not None,
-            provider is not None,
-        ]
+        val is not None
+        for val in (
+            url,
+            key,
+            model,
+            provider,
+            extra.get("timeout"),
+            extra.get("max_concurrency"),
+        )
     )
 
 
@@ -115,6 +145,8 @@ def load_or_update_config(  # pylint: disable=too-many-arguments,too-many-positi
     key: str | None = None,
     model: str | None = None,
     provider: str | None = None,
+    timeout: int | None = None,
+    max_concurrency: int | None = None,
     embedding_url: str | None = None,
     embedding_key: str | None = None,
     embedding_model: str | None = None,
@@ -127,6 +159,8 @@ def load_or_update_config(  # pylint: disable=too-many-arguments,too-many-positi
         key,
         model,
         provider,
+        timeout,
+        max_concurrency,
         embedding_url,
         embedding_key,
         embedding_model,
@@ -140,6 +174,8 @@ def load_or_update_config(  # pylint: disable=too-many-arguments,too-many-positi
         key=key,
         model=model,
         provider=provider,
+        timeout=timeout,
+        max_concurrency=max_concurrency,
         embedding_url=embedding_url,
         embedding_key=embedding_key,
         embedding_model=embedding_model,

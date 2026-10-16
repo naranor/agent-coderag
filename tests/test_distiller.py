@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from code_rag.core.constants import LLM_REQUEST_TIMEOUT, MAX_CONCURRENT_TASKS
 from code_rag.intelligence.distiller import Distiller, DistillerConfig
 
 
@@ -21,11 +22,15 @@ class TestDistillerConfig:
     def test_config_defaults(self):
         """Test default config values — no implicit LLM endpoint."""
         config = DistillerConfig()
+        assert LLM_REQUEST_TIMEOUT == 300
+        assert MAX_CONCURRENT_TASKS == 4
         assert config.model is None
         assert config.api_base is None
         assert config.api_key is None
         assert config.provider is None
         assert config.temperature == 0.0
+        assert config.timeout == 300
+        assert config.max_concurrency == 4
         assert not config.is_llm_configured()
 
     def test_config_custom_values(self):
@@ -36,10 +41,14 @@ class TestDistillerConfig:
             api_key="test-key",
             provider="openai",
             temperature=0.5,
+            timeout=120,
+            max_concurrency=8,
         )
         assert config.model == "gpt-4"
         assert config.api_base == "https://api.openai.com/v1"
         assert config.temperature == 0.5
+        assert config.timeout == 120
+        assert config.max_concurrency == 8
         assert config.is_llm_configured()
 
     def test_blank_llm_fields_become_none(self):
@@ -118,3 +127,25 @@ class TestDistiller:
             await distiller.summarize("def foo(): pass", "foo")
             call_kwargs = mock_comp.call_args.kwargs
             assert call_kwargs["model"] == "ollama/llama3"
+            assert call_kwargs["timeout"] == 300
+
+    @pytest.mark.asyncio
+    async def test_summarize_uses_configured_timeout(self):
+        """Test summarization forwards custom timeout from DistillerConfig."""
+        config = DistillerConfig(
+            model="gpt-4",
+            provider="openai",
+            api_base="https://api.openai.com/v1",
+            timeout=450,
+        )
+        distiller = Distiller(config)
+
+        with patch("litellm.acompletion") as mock_comp:
+            mock_response = MagicMock()
+            mock_response.choices = [
+                MagicMock(message=MagicMock(content="Custom timeout summary."))
+            ]
+            mock_comp.return_value = mock_response
+
+            await distiller.summarize("def bar(): pass", "bar")
+            assert mock_comp.call_args.kwargs["timeout"] == 450

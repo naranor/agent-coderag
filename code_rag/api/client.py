@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import AsyncIterator, Optional, Union
 
 from code_rag.api.models import ApiReport, SetupResult, SyncResult
-from code_rag.core.constants import DEFAULT_CONNECT_TIMEOUT_SECONDS
+from code_rag.core.constants import (
+    DEFAULT_CONNECT_TIMEOUT_SECONDS,
+    MAX_CONCURRENT_TASKS,
+)
 from code_rag.core.interfaces import IEmbedder, IIntelligence, IParser
 from code_rag.core.models import KnowledgeUnit
 from code_rag.discovery.manager import DiscoveryManager
@@ -124,37 +127,44 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
         key: Optional[str] = None,
         model: Optional[str] = None,
         provider: Optional[str] = None,
+        timeout: Optional[int] = None,
+        max_concurrency: Optional[int] = None,
         embedding_url: Optional[str] = None,
         embedding_key: Optional[str] = None,
         embedding_model: Optional[str] = None,
         embedding_provider: Optional[str] = None,
         clear_embedding: bool = False,
     ) -> DistillerConfig:
-        touch_embedding = embedding_fields_requested(
-            embedding_url=embedding_url,
-            embedding_key=embedding_key,
-            embedding_model=embedding_model,
-            embedding_provider=embedding_provider,
-            clear_embedding=clear_embedding,
-        )
-        touch_distill = distill_fields_requested(
-            url=url, key=key, model=model, provider=provider
-        )
         result = load_or_update_config(
             url=url,
             key=key,
             model=model,
             provider=provider,
+            timeout=timeout,
+            max_concurrency=max_concurrency,
             embedding_url=embedding_url,
             embedding_key=embedding_key,
             embedding_model=embedding_model,
             embedding_provider=embedding_provider,
             clear_embedding=clear_embedding,
         )
-        if touch_embedding or touch_distill:
-            await self._invalidate_stack_after_config(
-                embedding=touch_embedding, distill=touch_distill
-            )
+        await self._invalidate_stack_after_config(
+            embedding=embedding_fields_requested(
+                embedding_url=embedding_url,
+                embedding_key=embedding_key,
+                embedding_model=embedding_model,
+                embedding_provider=embedding_provider,
+                clear_embedding=clear_embedding,
+            ),
+            distill=distill_fields_requested(
+                url=url,
+                key=key,
+                model=model,
+                provider=provider,
+                timeout=timeout,
+                max_concurrency=max_concurrency,
+            ),
+        )
         return result
 
     async def _invalidate_stack_after_config(
@@ -165,6 +175,8 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
         Embedding changes close and drop the embedder (full stack rebuild on
         next op). Distill-only changes replace Distiller and keep the embedder.
         """
+        if not embedding and not distill:
+            return
         async with self._op_lock:
             if embedding and self._embedder is not None:
                 await self._embedder.close()
@@ -174,6 +186,11 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
                 return
             if distill and self._distiller is not None:
                 self._distiller = Distiller(DistillerConfig.load())
+
+    def _resolve_max_concurrency(self) -> int:
+        if isinstance(self._distiller, Distiller):
+            return self._distiller.config.max_concurrency
+        return MAX_CONCURRENT_TASKS
 
     async def setup(self, *, force: bool = False) -> SetupResult:
         return await run_setup(force=force)
@@ -199,6 +216,7 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
                     index_all=index_all,
                     force=force,
                     allow_build_execution=self._allow_build_execution,
+                    max_concurrency=self._resolve_max_concurrency(),
                 ),
             )
 
@@ -243,4 +261,5 @@ class CodeRAG:  # pylint: disable=too-many-instance-attributes
                 stack,
                 root=self._root,
                 allow_build_execution=self._allow_build_execution,
+                max_concurrency=self._resolve_max_concurrency(),
             )
