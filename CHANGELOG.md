@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+## [1.5.2] - 2026-10-16
+
+### Added
+- Distillation tuning is configurable: `timeout` (LLM request timeout, seconds) and `max_concurrency` (parallel sync tasks) in `config.json`, via CLI `agent-coderag config --timeout <sec> --max-concurrency <n>`, and via library `CodeRAG.config(timeout=..., max_concurrency=...)`. Values must be greater than 0. `CodeRAG.sync()` / `rebuild()` use the configured concurrency; the distiller passes the configured timeout to LiteLLM.
+
+### Changed
+- Default LLM request timeout raised from 30 to 300 seconds (`LLM_REQUEST_TIMEOUT`).
+- Default maximum concurrent sync tasks lowered from 10 to 4 (`MAX_CONCURRENT_TASKS`).
+
 ## [1.5.1] - 2026-09-27
 
 ### Fixed

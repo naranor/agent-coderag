@@ -13,7 +13,15 @@ from code_rag.intelligence.distiller import DistillerConfig
 from tests.fake_coderag import fake_coderag_class
 
 
-DISTILLER_KEYS = ("model", "api_base", "api_key", "provider", "temperature")
+DISTILLER_KEYS = (
+    "model",
+    "api_base",
+    "api_key",
+    "provider",
+    "temperature",
+    "timeout",
+    "max_concurrency",
+)
 EMBEDDING_KEYS = (
     "embedding_base",
     "embedding_key",
@@ -210,3 +218,30 @@ def test_argparse_embedding_dests():
         cli_args.main()
     assert captured["clear"] is True
     assert captured["eurl"] == "http://e"
+
+
+def test_argparse_and_config_cmd_timeout_and_max_concurrency():
+    cfg = DistillerConfig()
+    parser = cli_args.build_parser()
+    parsed = parser.parse_args(
+        ["--json", "config", "--timeout", "180", "--max-concurrency", "6"]
+    )
+    assert parsed.timeout == 180
+    assert parsed.max_concurrency == 6
+
+    with (
+        patch.object(DistillerConfig, "save") as mock_save,
+        patch("code_rag.entry.cli.DistillerConfig.load", return_value=cfg),
+    ):
+        old = sys.stdout
+        sys.stdout = StringIO()
+        try:
+            cli.config_cmd(parsed)
+            data = json.loads(sys.stdout.getvalue())
+        finally:
+            sys.stdout = old
+
+    assert data == {"status": "success", "message": "Config updated"}
+    assert cfg.timeout == 180
+    assert cfg.max_concurrency == 6
+    mock_save.assert_called_once()

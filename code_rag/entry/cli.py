@@ -186,7 +186,15 @@ async def api_cmd(args):
         await rag.close()
 
 
-DISTILLER_KEYS = ("model", "api_base", "api_key", "provider", "temperature")
+DISTILLER_KEYS = (
+    "model",
+    "api_base",
+    "api_key",
+    "provider",
+    "temperature",
+    "timeout",
+    "max_concurrency",
+)
 EMBEDDING_KEYS = (
     "embedding_base",
     "embedding_key",
@@ -195,25 +203,27 @@ EMBEDDING_KEYS = (
 )
 
 
+def _config_kwargs_from_args(args) -> dict:
+    return {
+        "url": getattr(args, "url", None),
+        "key": getattr(args, "key", None),
+        "model": getattr(args, "model", None),
+        "provider": getattr(args, "provider", None),
+        "timeout": getattr(args, "timeout", None),
+        "max_concurrency": getattr(args, "max_concurrency", None),
+        "embedding_url": getattr(args, "embedding_url", None),
+        "embedding_key": getattr(args, "embedding_key", None),
+        "embedding_model": getattr(args, "embedding_model", None),
+        "embedding_provider": getattr(args, "embedding_provider", None),
+        "clear_embedding": bool(getattr(args, "clear_embedding", False)),
+    }
+
+
 def config_cmd(args):
     config = DistillerConfig.load()
-    embedding_url = getattr(args, "embedding_url", None)
-    embedding_key = getattr(args, "embedding_key", None)
-    embedding_model = getattr(args, "embedding_model", None)
-    embedding_provider = getattr(args, "embedding_provider", None)
-    clear_embedding = bool(getattr(args, "clear_embedding", False))
+    updates = _config_kwargs_from_args(args)
     is_update = any(
-        [
-            args.url is not None,
-            args.key is not None,
-            args.model is not None,
-            args.provider is not None,
-            embedding_url is not None,
-            embedding_key is not None,
-            embedding_model is not None,
-            embedding_provider is not None,
-            clear_embedding,
-        ]
+        value is not None and value is not False for value in updates.values()
     )
     if not is_update:
         dump = config.model_dump()
@@ -227,18 +237,7 @@ def config_cmd(args):
             for key in EMBEDDING_KEYS:
                 print(f"  {key}: {dump.get(key)}")
         return
-    config = apply_config_updates(
-        config,
-        url=args.url,
-        key=args.key,
-        model=args.model,
-        provider=args.provider,
-        embedding_url=embedding_url,
-        embedding_key=embedding_key,
-        embedding_model=embedding_model,
-        embedding_provider=embedding_provider,
-        clear_embedding=clear_embedding,
-    )
+    config = apply_config_updates(config, **updates)
     config.save()
     if args.json:
         print(json.dumps({"status": "success", "message": "Config updated"}))

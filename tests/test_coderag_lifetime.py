@@ -318,3 +318,44 @@ async def test_config_distill_only_keeps_embedder_replaces_distiller(
     assert rag._distiller.config.model == "qwen"
     assert calls["create_embedder"] == 1
     await rag.close()
+
+
+@pytest.mark.asyncio
+async def test_config_timeout_and_concurrency_propagates_to_sync_and_rebuild(
+    tmp_path, monkeypatch, stub_stack
+):
+    embedder, calls = stub_stack
+    db = tmp_path / "idx.db"
+    await _seed_index(db, embedder)
+
+    updated_cfg = DistillerConfig(timeout=240, max_concurrency=7)
+    monkeypatch.setattr(
+        "code_rag.api.client.load_or_update_config",
+        lambda **k: updated_cfg,
+    )
+    monkeypatch.setattr(
+        "code_rag.intelligence.distiller.DistillerConfig.load",
+        lambda: updated_cfg,
+    )
+
+    sync_mock = AsyncMock(return_value=SyncResult(status="success", indexed_files=1))
+    rebuild_mock = AsyncMock(return_value=SyncResult(status="success", indexed_files=1))
+    monkeypatch.setattr("code_rag.api.client.run_sync", sync_mock)
+    monkeypatch.setattr("code_rag.api.client.run_rebuild", rebuild_mock)
+
+    rag = CodeRAG(db=str(db), root=tmp_path, connect_timeout_seconds=0)
+    await rag.search("q")
+    await rag.config(timeout=240, max_concurrency=7)
+
+    assert rag._embedder is embedder
+    assert rag._distiller.config.timeout == 240
+    assert rag._distiller.config.max_concurrency == 7
+    assert calls["create_embedder"] == 1
+
+    await rag.sync(index_all=True)
+    sync_options = sync_mock.await_args.args[1]
+    assert sync_options.max_concurrency == 7
+
+    await rag.rebuild()
+    assert rebuild_mock.await_args.kwargs["max_concurrency"] == 7
+    await rag.close()

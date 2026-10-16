@@ -190,3 +190,24 @@ def test_save_io_error_is_logged(tmp_path, caplog):
         with caplog.at_level(logging.ERROR, logger="code_rag.intelligence.distiller"):
             cfg.save()
     assert any("Failed to save config" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"timeout": 0},
+        {"timeout": -10},
+        {"max_concurrency": 0},
+        {"max_concurrency": -2},
+        {"timeout": False},
+    ],
+)
+def test_non_positive_timeout_or_concurrency_rejected(tmp_path, kwargs):
+    global_dir = tmp_path / "agent-coderag"
+    global_dir.mkdir()
+    with patch(
+        "code_rag.intelligence.distiller.get_global_dir", return_value=global_dir
+    ):
+        with pytest.raises(IntelligenceError, match="must be greater than 0"):
+            load_or_update_config(**kwargs)
+        assert not (global_dir / "config.json").exists()

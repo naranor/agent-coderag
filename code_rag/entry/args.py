@@ -68,6 +68,17 @@ def build_parser() -> argparse.ArgumentParser:
     cfg.add_argument("--model", help="Model name.")
     cfg.add_argument("--provider", help="Provider name (openai, ollama).")
     cfg.add_argument(
+        "--timeout",
+        type=int,
+        help="LLM distillation request timeout in seconds.",
+    )
+    cfg.add_argument(
+        "--max-concurrency",
+        dest="max_concurrency",
+        type=int,
+        help="Maximum concurrent tasks during sync.",
+    )
+    cfg.add_argument(
         "--embedding-url", dest="embedding_url", help="Embedding API base URL."
     )
     cfg.add_argument("--embedding-key", dest="embedding_key", help="Embedding API key.")
